@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows.Threading;
 using BlueApex.Desktop;
@@ -8,25 +9,23 @@ namespace BlueApex.Drawer;
 
 /// <summary>
 /// The home-screen / drawer model. The desktop shows only pinned icons; every
-/// other icon is parked off-screen (far above the top edge) and reachable through
-/// the drawer, where zones act as categories.
+/// other file on the desktop gets the Hidden attribute, which makes explorer leave
+/// it off the desktop without any icon being moved. The drawer lists everything,
+/// hidden or not, with zones as categories.
 ///
-/// Safety: parking is a fixed vertical offset, so any icon can be brought back by
-/// undoing it, whether or not this app remembers it. <see cref="UnparkAll"/> runs
-/// on every clean exit; the tray backup/restore covers the rest.
+/// Safety: hiding is a file attribute, so it survives anything and is undone the
+/// same way. The ids this app hid are saved, every clean exit unhides them, and
+/// the tray offers to unhide them at any time.
 /// </summary>
 internal sealed class DrawerManager : IDisposable
 {
-    public const int ParkOffset = 8000;
     private const string RecycleBinId = "::{645FF040-5081-101B-9F08-00AA002F954E}";
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(1000);
 
     private readonly DesktopIconView _icons;
-    private readonly bool _restoreSnapToGrid;
-    private readonly bool _restoreAutoArrange;
-    private readonly CellSize _cell;
     private readonly DispatcherTimer _poll;
     private readonly LayoutFile _file;
+    private readonly HashSet<string> _cannotHide = new(); // files whose attributes we may not change
     private Dictionary<string, DesktopIcon> _current = new();
 
     /// <summary>Raised after anything the drawer shows has changed.</summary>
@@ -38,27 +37,19 @@ internal sealed class DrawerManager : IDisposable
     public DrawerManager()
     {
         _icons = DesktopIconView.Connect();
-
-        // Explorer must not reposition icons on its own, or parked icons would be pulled back.
-        _restoreSnapToGrid = _icons.SnapToGrid;
-        _restoreAutoArrange = _icons.AutoArrange;
-        if (_restoreSnapToGrid) _icons.SnapToGrid = false;
-        if (_restoreAutoArrange) _icons.AutoArrange = false;
-        _cell = _icons.Spacing;
-
-        var icons = _icons.GetIcons();
-        BackupStore.Save(icons); // the desktop as found, before anything is parked
+        BackupStore.Save(_icons.GetIcons()); // the desktop as found
 
         _file = LayoutStore.Load();
-        if (_file.Version < 2)
+        if (_file.Version < 3)
         {
-            // First run in drawer mode: keep the Recycle Bin at hand, park the rest.
-            _file.Version = 2;
-            if (icons.Any(i => i.Id == RecycleBinId)) _file.Pinned.Add(RecycleBinId);
+            // Drawer mode: keep the Recycle Bin at hand, everything else goes into the drawer.
+            _file.Version = 3;
+            if (!_file.Pinned.Contains(RecycleBinId)) _file.Pinned.Add(RecycleBinId);
         }
 
-        _current = icons.ToDictionary(i => i.Id);
-        ParkUnpinned();
+        _current = DesktopCatalog.Scan(_icons).ToDictionary(i => i.Id);
+        EnsureDefaultZone();
+        Reconcile();
         Save();
 
         _poll = new DispatcherTimer(DispatcherPriority.Background) { Interval = PollInterval };
@@ -70,35 +61,31 @@ internal sealed class DrawerManager : IDisposable
     public IReadOnlyCollection<DesktopIcon> Icons => _current.Values;
     public string Hotkey => _file.Hotkey;
 
+    /// <summary>Public-desktop files we could not hide for lack of rights. Empty once access is granted.</summary>
+    public IReadOnlyCollection<string> CannotHide => _cannotHide;
+
     public IEnumerable<DesktopIcon> IconsOf(Zone zone) =>
         zone.Members.Select(id => _current.GetValueOrDefault(id)).OfType<DesktopIcon>();
 
-    /// <summary>Icons in no zone, by name.</summary>
-    public IEnumerable<DesktopIcon> Unassigned
-    {
-        get
-        {
-            var owned = _file.Zones.SelectMany(z => z.Members).ToHashSet();
-            return _current.Values.Where(i => !owned.Contains(i.Id)).OrderBy(i => i.Name);
-        }
-    }
+    /// <summary>Pinned, or a shell item (which cannot be hidden), or a file we lack the rights to hide.</summary>
+    public bool IsOnDesktop(string id) =>
+        _file.Pinned.Contains(id) || (_current.TryGetValue(id, out var icon) && icon.IsShellItem) || _cannotHide.Contains(id);
 
     public bool IsPinned(string id) => _file.Pinned.Contains(id);
+    public bool CanToggle(string id) => _current.TryGetValue(id, out var icon) && !icon.IsShellItem;
+
     public Zone? ZoneOf(string id) => _file.Zones.FirstOrDefault(z => z.Members.Contains(id));
-    public static bool IsParked(DesktopIcon icon) => icon.Y < -ParkOffset / 2;
 
-    // --- pin / park ---
+    // --- pin / hide ---
 
-    /// <summary>Shows the icon on the desktop, in the first free grid cell.</summary>
+    /// <summary>Shows the icon on the desktop; explorer puts it back where it used to be.</summary>
     public void Pin(string id)
     {
-        if (IsPinned(id) || !_current.TryGetValue(id, out var icon)) return;
+        if (IsPinned(id) || !_current.ContainsKey(id)) return;
         _file.Pinned.Add(id);
-        if (IsParked(icon))
-            Move(id, FreeCell());
-        else if (icon.Y < 0 || icon.Y >= NativeMethods.GetSystemMetrics(NativeMethods.SM_CYSCREEN))
-            Move(id, FreeCell()); // off-screen for some other reason: bring it where it can be seen
+        Unhide(id);
         Save();
+        Refresh();
         Changed?.Invoke();
     }
 
@@ -106,71 +93,83 @@ internal sealed class DrawerManager : IDisposable
     public void Unpin(string id)
     {
         if (!_file.Pinned.Remove(id)) return;
-        if (_current.TryGetValue(id, out var icon) && !IsParked(icon))
-            Move(id, new NativeMethods.POINT { X = icon.X, Y = icon.Y - ParkOffset });
+        Hide(id);
         Save();
+        Refresh();
         Changed?.Invoke();
     }
 
-    /// <summary>Parks every unpinned icon that is on screen, and brings back any pinned icon that is parked.</summary>
-    private void ParkUnpinned()
+    private void Hide(string id)
     {
-        var moves = new Dictionary<string, NativeMethods.POINT>();
-        foreach (var icon in _current.Values)
+        if (!_current.TryGetValue(id, out var icon) || icon.IsShellItem || icon.Hidden) return;
+        if (DesktopCatalog.SetHidden(id, true))
         {
-            var pinned = IsPinned(icon.Id);
-            if (!pinned && !IsParked(icon))
-                moves[icon.Id] = new NativeMethods.POINT { X = icon.X, Y = icon.Y - ParkOffset };
-            else if (pinned && IsParked(icon))
-                moves[icon.Id] = ReturnPosition(icon);
+            if (!_file.HiddenByApp.Contains(id)) _file.HiddenByApp.Add(id);
+            _cannotHide.Remove(id);
         }
-        if (moves.Count == 0) return;
-        Log.Write($"park/unpark {moves.Count} icon(s)");
-        _icons.MoveIcons(moves);
-        Refresh();
+        else
+        {
+            _cannotHide.Add(id);
+        }
     }
 
-    // Where a parked icon goes when it comes back: its old spot if that is on screen, else a free cell.
-    private NativeMethods.POINT ReturnPosition(DesktopIcon icon)
+    private void Unhide(string id)
     {
-        var y = icon.Y + ParkOffset;
-        return y >= 0 && y < NativeMethods.GetSystemMetrics(NativeMethods.SM_CYSCREEN) && icon.X >= 0
-            ? new NativeMethods.POINT { X = icon.X, Y = y }
-            : FreeCell();
+        if (!_file.HiddenByApp.Remove(id)) return; // never clear a Hidden attribute the user set themselves
+        DesktopCatalog.SetHidden(id, false);
     }
 
-    /// <summary>Brings every parked icon back to where it was parked from. Used on exit.</summary>
-    public void UnparkAll()
+    /// <summary>Hides every unpinned file and shows every pinned one.</summary>
+    private void Reconcile()
     {
-        var moves = _current.Values.Where(IsParked)
-            .ToDictionary(i => i.Id, i => new NativeMethods.POINT { X = i.X, Y = i.Y + ParkOffset });
-        if (moves.Count == 0) return;
-        Log.Write($"unpark {moves.Count} icon(s)");
-        _icons.MoveIcons(moves);
+        var before = _file.HiddenByApp.Count;
+        foreach (var icon in _current.Values.ToList())
+        {
+            if (IsPinned(icon.Id)) Unhide(icon.Id);
+            else Hide(icon.Id);
+        }
+        if (_file.HiddenByApp.Count != before)
+            Log.Write($"hidden by app: {_file.HiddenByApp.Count} file(s), cannot hide: {_cannotHide.Count}");
+    }
+
+    /// <summary>Clears the Hidden attribute from every file this app hid. Used on exit and from the tray.</summary>
+    public void UnhideAll()
+    {
+        var count = 0;
+        foreach (var id in _file.HiddenByApp.ToList())
+            if (DesktopCatalog.SetHidden(id, false)) count++;
+        _file.HiddenByApp.Clear();
+        if (count > 0) Log.Write($"unhid {count} file(s)");
+        Save();
+    }
+
+    /// <summary>Asks for elevation once to make public-desktop files hideable, then hides what was pending.</summary>
+    public bool GrantPublicDesktopAccess()
+    {
+        if (!DesktopCatalog.GrantPublicDesktopAccess()) return false;
+        _cannotHide.Clear();
         Refresh();
+        Reconcile();
+        Save();
+        Changed?.Invoke();
+        return true;
     }
 
     /// <summary>Puts icons back as a backup has them and pins them all, so the drawer leaves them alone.</summary>
     public void Restore(DesktopBackup backup)
     {
-        var positions = backup.Icons.ToDictionary(i => i.Id, i => new NativeMethods.POINT { X = i.X, Y = i.Y });
-        _icons.MoveIcons(positions);
-        foreach (var id in positions.Keys)
-            if (!_file.Pinned.Contains(id)) _file.Pinned.Add(id);
-        Log.Write($"restored {positions.Count} icon(s) from backup {backup.Time:yyyy-MM-dd HH:mm:ss}");
+        foreach (var icon in backup.Icons)
+            if (!_file.Pinned.Contains(icon.Id)) _file.Pinned.Add(icon.Id);
+        Refresh();
+        Reconcile();
+        _icons.MoveIcons(backup.Icons.ToDictionary(i => i.Id, i => new NativeMethods.POINT { X = i.X, Y = i.Y }));
+        Log.Write($"restored {backup.Icons.Count} icon(s) from backup {backup.Time:yyyy-MM-dd HH:mm:ss}");
         Refresh();
         Save();
         Changed?.Invoke();
     }
 
-    private void Move(string id, NativeMethods.POINT to)
-    {
-        _icons.MoveIcons(new Dictionary<string, NativeMethods.POINT> { [id] = to });
-        Refresh();
-    }
-
-    /// <summary>A desktop rectangle (icon-view pixels) that pinned icons must not be placed on, e.g. the drawer button.</summary>
-    public NativeMethods.RECT Reserved { get; set; }
+    public string BackupNow() => BackupStore.Save(_icons.GetIcons());
 
     /// <summary>Saved drawer-button position, or null for the default spot.</summary>
     public (int X, int Y)? ButtonPosition
@@ -184,29 +183,36 @@ internal sealed class DrawerManager : IDisposable
         }
     }
 
-    // The first empty cell of explorer's grid, scanning each column top to bottom like explorer does.
-    private NativeMethods.POINT FreeCell()
+    // --- zones ---
+
+    /// <summary>The catch-all zone: where icons go when no rule claims them. Always exists.</summary>
+    public Zone DefaultZone => _file.Zones.First(z => z.Id == _file.DefaultZoneId);
+
+    public bool IsDefault(Zone zone) => zone.Id == _file.DefaultZoneId;
+
+    public void SetDefaultZone(Zone zone)
     {
-        var onScreen = _current.Values.Where(i => !IsParked(i)).ToList();
-        var originX = onScreen.Count > 0 ? onScreen.Min(i => ((i.X % _cell.Width) + _cell.Width) % _cell.Width) : _cell.Width / 6;
-        var originY = onScreen.Count > 0 ? onScreen.Min(i => ((i.Y % _cell.Height) + _cell.Height) % _cell.Height) : _cell.Height / 3;
-        var taken = onScreen.Select(i => ((i.X - originX) / _cell.Width, (i.Y - originY) / _cell.Height)).ToHashSet();
-        var columns = Math.Max(1, (NativeMethods.GetSystemMetrics(NativeMethods.SM_CXSCREEN) - originX) / _cell.Width);
-        var rows = Math.Max(1, (NativeMethods.GetSystemMetrics(NativeMethods.SM_CYSCREEN) - originY) / _cell.Height);
-        for (var col = 0; col < columns; col++)
-            for (var row = 0; row < rows; row++)
-            {
-                if (taken.Contains((col, row))) continue;
-                var x = originX + col * _cell.Width;
-                var y = originY + row * _cell.Height;
-                var overlapsReserved = x < Reserved.Right && x + _cell.Width > Reserved.Left && y < Reserved.Bottom && y + _cell.Height > Reserved.Top;
-                if (!overlapsReserved)
-                    return new NativeMethods.POINT { X = x, Y = y };
-            }
-        return new NativeMethods.POINT { X = originX, Y = originY };
+        _file.DefaultZoneId = zone.Id;
+        Save();
+        Changed?.Invoke();
     }
 
-    // --- zones ---
+    // Makes sure a default zone exists and that every icon belongs to some zone.
+    private void EnsureDefaultZone()
+    {
+        if (_file.DefaultZoneId == null || _file.Zones.All(z => z.Id != _file.DefaultZoneId))
+        {
+            var zone = new Zone { Title = "기본" };
+            _file.Zones.Insert(0, zone);
+            _file.DefaultZoneId = zone.Id;
+        }
+        var owned = _file.Zones.SelectMany(z => z.Members).ToHashSet();
+        foreach (var icon in _current.Values.Where(i => !owned.Contains(i.Id)).OrderBy(i => i.Name))
+            DefaultZone.Members.Add(icon.Id);
+    }
+
+    /// <summary>Zones other than the default: the ones whose rules can claim an icon.</summary>
+    private IEnumerable<Zone> RuleZones => _file.Zones.Where(z => !IsDefault(z));
 
     public Zone AddZone(string title)
     {
@@ -224,10 +230,11 @@ internal sealed class DrawerManager : IDisposable
         Changed?.Invoke();
     }
 
-    /// <summary>Removes the category; its icons become unassigned (and stay pinned or parked as they were).</summary>
+    /// <summary>Removes the category; its icons go to the default zone. The default zone cannot be removed.</summary>
     public void RemoveZone(Zone zone)
     {
-        _file.Zones.Remove(zone);
+        if (IsDefault(zone) || !_file.Zones.Remove(zone)) return;
+        DefaultZone.Members.AddRange(zone.Members);
         Save();
         Changed?.Invoke();
     }
@@ -238,23 +245,24 @@ internal sealed class DrawerManager : IDisposable
         Save();
     }
 
-    /// <summary>Puts the icon in a zone (or in none), keeping its pinned/parked state.</summary>
+    /// <summary>Puts the icon in a zone (null = the default zone), keeping its pinned state.</summary>
     public void MoveToZone(string id, Zone? zone)
     {
         foreach (var z in _file.Zones) z.Members.Remove(id);
-        zone?.Members.Add(id);
+        (zone ?? DefaultZone).Members.Add(id);
         Save();
         Changed?.Invoke();
     }
 
-    /// <summary>Sorts every unassigned icon into the first zone whose patterns match. Returns how many moved.</summary>
+    /// <summary>Sorts the default zone's icons into the first other zone whose patterns match. Returns how many moved.</summary>
     public int ApplyRulesToUnassigned()
     {
         var sorted = 0;
-        foreach (var icon in Unassigned.ToList())
+        foreach (var icon in IconsOf(DefaultZone).ToList())
         {
-            var target = ZoneRules.Target(_file.Zones, icon);
+            var target = ZoneRules.Target(RuleZones, icon);
             if (target == null) continue;
+            DefaultZone.Members.Remove(icon.Id);
             target.Members.Add(icon.Id);
             sorted++;
         }
@@ -270,13 +278,13 @@ internal sealed class DrawerManager : IDisposable
 
     public static void Launch(DesktopIcon icon)
     {
-        var file = icon.Id.StartsWith("::", StringComparison.Ordinal) ? "shell:" + icon.Id : icon.Id;
+        var file = icon.IsShellItem ? "shell:" + icon.Id : icon.Id;
         Process.Start(new ProcessStartInfo(file) { UseShellExecute = true });
     }
 
     public static void OpenLocation(DesktopIcon icon)
     {
-        if (icon.Id.StartsWith("::", StringComparison.Ordinal)) return;
+        if (icon.IsShellItem) return;
         Process.Start("explorer.exe", $"/select,\"{icon.Id}\"");
     }
 
@@ -284,63 +292,64 @@ internal sealed class DrawerManager : IDisposable
 
     private void Refresh()
     {
-        _current = _icons.GetIcons().ToDictionary(i => i.Id);
+        _current = DesktopCatalog.Scan(_icons).ToDictionary(i => i.Id);
     }
+
+    /// <summary>Runs the poll right away.</summary>
+    public void PollNow() => Poll();
 
     private void Poll()
     {
-        IReadOnlyList<DesktopIcon> icons;
+        List<DesktopIcon> icons;
         try
         {
-            icons = _icons.GetIcons();
+            icons = DesktopCatalog.Scan(_icons);
         }
-        catch (Exception ex) when (ex is COMException or InvalidCastException)
+        catch (Exception ex) when (ex is COMException or InvalidCastException or IOException)
         {
             return; // explorer busy or restarting; try again next tick
         }
 
         var changed = false;
-        var moves = new Dictionary<string, NativeMethods.POINT>();
         var seen = icons.Select(i => i.Id).ToHashSet();
+        var previous = _current;
+        _current = icons.ToDictionary(i => i.Id);
 
         foreach (var icon in icons)
         {
-            if (!_current.ContainsKey(icon.Id))
+            if (!previous.ContainsKey(icon.Id))
             {
-                // New on the desktop: file it by rule, then into the drawer unless pinned.
-                var target = ZoneRules.Target(_file.Zones, icon);
-                target?.Members.Add(icon.Id);
-                Log.Write($"new {icon.Name} -> {target?.Title ?? "기타"}");
-                if (!IsPinned(icon.Id) && !IsParked(icon))
+                // New on the desktop: file it by rule (else the default zone), then into the drawer unless pinned.
+                var target = ZoneRules.Target(RuleZones, icon) ?? DefaultZone;
+                target.Members.Add(icon.Id);
+                Log.Write($"new {icon.Name} -> {target.Title}");
+                if (!IsPinned(icon.Id) && !icon.IsShellItem)
                 {
-                    moves[icon.Id] = new NativeMethods.POINT { X = icon.X, Y = icon.Y - ParkOffset };
-                    Notice?.Invoke("서랍에 넣었습니다", $"{icon.Name} → {target?.Title ?? "기타"}");
+                    Hide(icon.Id);
+                    Notice?.Invoke("서랍에 넣었습니다", $"{icon.Name} → {target.Title}");
                 }
                 changed = true;
             }
-            else if (!IsPinned(icon.Id) && !IsParked(icon))
+            else if (!IsPinned(icon.Id) && !icon.Hidden && !icon.IsShellItem && !_cannotHide.Contains(icon.Id))
             {
-                // Explorer pulled a parked icon back (display change, refresh): park it again.
-                moves[icon.Id] = new NativeMethods.POINT { X = icon.X, Y = icon.Y - ParkOffset };
+                Hide(icon.Id); // something unhid it (the user, an installer): back into the drawer
             }
-            else if (IsPinned(icon.Id) && IsParked(icon))
+            else if (IsPinned(icon.Id) && icon.Hidden && _file.HiddenByApp.Contains(icon.Id))
             {
-                moves[icon.Id] = ReturnPosition(icon);
+                Unhide(icon.Id);
             }
         }
 
-        foreach (var id in _current.Keys.Where(id => !seen.Contains(id)).ToList())
+        foreach (var id in previous.Keys.Where(id => !seen.Contains(id)).ToList())
         {
             // Gone from the desktop (deleted, moved away).
             foreach (var z in _file.Zones) z.Members.Remove(id);
             _file.Pinned.Remove(id);
+            _file.HiddenByApp.Remove(id);
+            _cannotHide.Remove(id);
             changed = true;
         }
 
-        if (moves.Count > 0)
-            _icons.MoveIcons(moves);
-
-        _current = (moves.Count > 0 ? _icons.GetIcons() : icons).ToDictionary(i => i.Id);
         if (changed)
         {
             Save();
@@ -353,15 +362,6 @@ internal sealed class DrawerManager : IDisposable
     public void Dispose()
     {
         _poll.Stop();
-        try
-        {
-            UnparkAll(); // never leave the desktop empty behind us
-            if (_restoreSnapToGrid) _icons.SnapToGrid = true;
-            if (_restoreAutoArrange) _icons.AutoArrange = true;
-        }
-        catch (Exception ex) when (ex is COMException or InvalidCastException)
-        {
-            // explorer is gone; nothing to restore
-        }
+        UnhideAll(); // never leave the desktop empty behind us
     }
 }

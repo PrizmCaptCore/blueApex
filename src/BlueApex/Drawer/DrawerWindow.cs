@@ -149,15 +149,12 @@ internal sealed class DrawerWindow : Window
         _cards.Children.Clear();
         _tiles.Clear();
         foreach (var zone in _drawer.Zones)
-            _cards.Children.Add(BuildCard(zone.Title, _drawer.IconsOf(zone), zone));
-        var unassigned = _drawer.Unassigned.ToList();
-        if (unassigned.Count > 0 || _drawer.Zones.Count == 0)
-            _cards.Children.Add(BuildCard("기타", unassigned, null));
+            _cards.Children.Add(BuildCard(_drawer.IsDefault(zone) ? zone.Title + "  (기본)" : zone.Title, _drawer.IconsOf(zone), zone));
         _cards.Children.Add(BuildAddCard());
         ApplyFilter();
     }
 
-    private Border BuildCard(string title, IEnumerable<DesktopIcon> icons, Zone? zone)
+    private Border BuildCard(string title, IEnumerable<DesktopIcon> icons, Zone zone)
     {
         var header = new TextBlock
         {
@@ -187,31 +184,34 @@ internal sealed class DrawerWindow : Window
         };
         card.DragOver += (_, e) => e.Effects = e.Data.GetDataPresent(DragFormat) ? DragDropEffects.Move : DragDropEffects.None;
 
-        if (zone != null)
+        var isDefault = _drawer.IsDefault(zone);
+        var menu = new ContextMenu();
+        menu.Items.Add(MenuItem("이름 바꾸기", () =>
         {
-            var menu = new ContextMenu();
-            menu.Items.Add(MenuItem("이름 바꾸기", () =>
-            {
-                var name = ZoneMenu.AskTitle(zone.Title);
-                if (!string.IsNullOrWhiteSpace(name)) _drawer.RenameZone(zone, name);
-            }));
+            var name = ZoneMenu.AskTitle(zone.Title);
+            if (!string.IsNullOrWhiteSpace(name)) _drawer.RenameZone(zone, name);
+        }));
+        if (!isDefault)
+        {
+            // The default zone is where unclaimed icons land, so rules on it would be pointless.
             menu.Items.Add(MenuItem("자동 분류 규칙...", () =>
             {
                 var text = ZoneMenu.AskText("자동 분류 규칙: " + zone.Title, string.Join(Environment.NewLine, zone.Patterns), ZoneMenu.PatternHint, multiline: true);
                 if (text == null) return;
                 _drawer.SetPatterns(zone, text.Split('\n'));
-                if (zone.Patterns.Count > 0 && MessageBox.Show("구역에 속하지 않은 아이콘에 지금 적용할까요?", "자동 분류 규칙", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+                if (zone.Patterns.Count > 0 && MessageBox.Show($"'{_drawer.DefaultZone.Title}' 구역의 아이콘에 지금 적용할까요?", "자동 분류 규칙", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
                     _drawer.ApplyRulesToUnassigned();
             }));
+            menu.Items.Add(MenuItem("기본 구역으로 지정", () => _drawer.SetDefaultZone(zone)));
             menu.Items.Add(new Separator());
             menu.Items.Add(MenuItem("구역 삭제", () =>
             {
-                if (MessageBox.Show($"'{zone.Title}' 구역을 삭제할까요?\n아이콘은 '기타'로 옮겨집니다.", "구역 삭제", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+                if (MessageBox.Show($"'{zone.Title}' 구역을 삭제할까요?\n아이콘은 '{_drawer.DefaultZone.Title}' 구역으로 옮겨집니다.", "구역 삭제", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
                     _drawer.RemoveZone(zone);
             }));
-            header.ContextMenu = menu;
-            header.Cursor = Cursors.Hand;
         }
+        header.ContextMenu = menu;
+        header.Cursor = Cursors.Hand;
 
         foreach (var icon in icons)
         {
@@ -236,7 +236,7 @@ internal sealed class DrawerWindow : Window
             MaxHeight = 34,
         };
         var top = new Grid { Children = { image } };
-        if (_drawer.IsPinned(icon.Id))
+        if (_drawer.IsOnDesktop(icon.Id))
         {
             // Small badge: this icon is also out on the desktop.
             top.Children.Add(new Border
@@ -279,12 +279,12 @@ internal sealed class DrawerWindow : Window
         };
 
         var menu = new ContextMenu();
-        menu.Items.Add(MenuItem(_drawer.IsPinned(icon.Id) ? "서랍에 넣기 (바탕화면에서 치우기)" : "바탕화면에 꺼내기",
-            () => { if (_drawer.IsPinned(icon.Id)) _drawer.Unpin(icon.Id); else _drawer.Pin(icon.Id); }));
+        if (_drawer.CanToggle(icon.Id))
+            menu.Items.Add(MenuItem(_drawer.IsPinned(icon.Id) ? "서랍에 넣기 (바탕화면에서 치우기)" : "바탕화면에 꺼내기",
+                () => { if (_drawer.IsPinned(icon.Id)) _drawer.Unpin(icon.Id); else _drawer.Pin(icon.Id); }));
         var move = new MenuItem { Header = "구역으로 이동" };
         foreach (var zone in _drawer.Zones)
-            move.Items.Add(MenuItem(zone.Title, () => _drawer.MoveToZone(icon.Id, zone)));
-        move.Items.Add(MenuItem("기타 (구역 없음)", () => _drawer.MoveToZone(icon.Id, null)));
+            move.Items.Add(MenuItem(_drawer.IsDefault(zone) ? zone.Title + " (기본)" : zone.Title, () => _drawer.MoveToZone(icon.Id, zone)));
         menu.Items.Add(move);
         if (!icon.Id.StartsWith("::", StringComparison.Ordinal))
             menu.Items.Add(MenuItem("파일 위치 열기", () => DrawerManager.OpenLocation(icon)));

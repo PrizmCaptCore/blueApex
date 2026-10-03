@@ -5,7 +5,12 @@ namespace BlueApex.Desktop;
 /// <param name="Id">Shell parsing name: a file path, or ::{CLSID} for items like the Recycle Bin. Stable across sessions.</param>
 /// <param name="X">Position in the icon view's client coordinates (physical pixels).</param>
 /// <param name="Selected">Whether the icon is selected in the view. After a drag and drop, the dropped icons are the selected ones.</param>
-internal sealed record DesktopIcon(string Id, string Name, int X, int Y, bool Selected);
+/// <param name="Hidden">File has the Hidden attribute, so explorer does not show it on the desktop.</param>
+internal sealed record DesktopIcon(string Id, string Name, int X, int Y, bool Selected, bool Hidden = false)
+{
+    /// <summary>Shell items like the Recycle Bin: not files, so they cannot be hidden by attribute.</summary>
+    public bool IsShellItem => Id.StartsWith("::", StringComparison.Ordinal);
+}
 
 /// <summary>Size of one icon cell (explorer's icon spacing), physical pixels.</summary>
 internal readonly record struct CellSize(int Width, int Height);
@@ -22,12 +27,85 @@ internal sealed class DesktopIconView
     private const int SWFO_NEEDDISPATCH = 1;
 
     private readonly IFolderView2 _view;
+    private readonly IShellView _shellView;
     private readonly IShellFolder _folder;
+
+    /// <summary>
+    /// Asks explorer to persist the current icon positions. Explorer re-applies its
+    /// last saved positions after a user drop, which undid every position set
+    /// through the API until this was called after them.
+    /// </summary>
+    public void SaveViewState() => _shellView.SaveViewState();
+
+    /// <summary>
+    /// Takes icons out of the desktop view (they are not listed or drawn until put
+    /// back) without touching the files or their saved positions. Returns the ids
+    /// that were actually removed.
+    /// </summary>
+    public IReadOnlyList<string> RemoveFromView(IReadOnlyCollection<string> ids)
+    {
+        var folderView = (IShellFolderView)_view;
+        var removed = new List<string>();
+        var pidls = new List<(string Id, IntPtr Pidl)>();
+        try
+        {
+            ForEachItemOwned(pidl =>
+            {
+                var id = DisplayName(pidl, ShellNative.SHGDN_FORPARSING);
+                if (!ids.Contains(id)) return false;
+                pidls.Add((id, pidl));
+                return true;
+            });
+            foreach (var (id, pidl) in pidls)
+                if (folderView.RemoveObject(pidl, out _) >= 0)
+                    removed.Add(id);
+        }
+        finally
+        {
+            foreach (var (_, pidl) in pidls)
+                Marshal.FreeCoTaskMem(pidl);
+        }
+        return removed;
+    }
+
+    /// <summary>Puts items back into the desktop view, given their parsing names (file paths or ::{CLSID}).</summary>
+    public IReadOnlyList<string> AddToView(IReadOnlyCollection<string> ids)
+    {
+        var folderView = (IShellFolderView)_view;
+        var added = new List<string>();
+        foreach (var id in ids)
+        {
+            var pidl = IntPtr.Zero;
+            try
+            {
+                if (ShellNative.SHParseDisplayName(id, IntPtr.Zero, out pidl, 0, out _) < 0) continue;
+                var child = ShellNative.ILFindLastID(pidl);
+                if (folderView.AddObject(child, out _) >= 0)
+                    added.Add(id);
+            }
+            finally
+            {
+                if (pidl != IntPtr.Zero) Marshal.FreeCoTaskMem(pidl);
+            }
+        }
+        return added;
+    }
 
     private DesktopIconView(IFolderView2 view, IShellFolder folder)
     {
         _view = view;
+        _shellView = (IShellView)view;
         _folder = folder;
+    }
+
+    /// <summary>The desktop view's automation object (ShellFolderView), for late-bound calls.</summary>
+    public static object DesktopDocument()
+    {
+        var shellWindows = (IShellWindows)Activator.CreateInstance(Type.GetTypeFromCLSID(CLSID_ShellWindows)!)!;
+        object? location = 0;
+        object? root = null;
+        dynamic dispatch = shellWindows.FindWindowSW(ref location, ref root, SWC_DESKTOP, out _, SWFO_NEEDDISPATCH)!;
+        return dispatch.Document;
     }
 
     public static DesktopIconView Connect()
@@ -138,7 +216,10 @@ internal sealed class DesktopIconView
             });
 
             if (pidls.Count > 0)
+            {
                 _view.SelectAndPositionItems((uint)pidls.Count, pidls.ToArray(), points.ToArray(), ShellNative.SVSI_POSITIONITEM);
+                SaveViewState(); // or explorer reverts these on the next user drop
+            }
         }
         finally
         {

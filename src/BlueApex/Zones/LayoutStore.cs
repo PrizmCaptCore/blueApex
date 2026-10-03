@@ -17,10 +17,16 @@ internal sealed class LayoutFile
     /// <summary>Icons kept on the desktop (ids). Everything else lives in the drawer only.</summary>
     public List<string> Pinned { get; set; } = new();
 
+    /// <summary>Files this app has hidden, so they can be unhidden even after a crash.</summary>
+    public List<string> HiddenByApp { get; set; } = new();
+
     /// <summary>Drawer hotkey, e.g. "Ctrl+Shift+Space".</summary>
     public string Hotkey { get; set; } = "Ctrl+Shift+Space";
 
     /// <summary>Position of the drawer button on the desktop (icon-view pixels); null = default spot.</summary>
+    /// <summary>The zone that collects every icon no rule claims. Created on first load if missing.</summary>
+    public Guid? DefaultZoneId { get; set; }
+
     public int? ButtonX { get; set; }
     public int? ButtonY { get; set; }
 }

@@ -34,11 +34,15 @@ internal sealed class DesktopButton : IDisposable
     private NativeMethods.POINT _pressPoint;
     private (int X, int Y) _pressOrigin;
 
-    public DesktopButton(DesktopHost desktop, DrawerManager drawer, Action open)
+    private readonly Action _desktopMouseUp;
+
+    /// <param name="desktopMouseUp">Called (on the dispatcher) after any left button release over the desktop, i.e. after a drop.</param>
+    public DesktopButton(DesktopHost desktop, DrawerManager drawer, Action open, Action desktopMouseUp)
     {
         _desktop = desktop;
         _drawer = drawer;
         _open = open;
+        _desktopMouseUp = desktopMouseUp;
         _dispatcher = Dispatcher.CurrentDispatcher;
         var scale = desktop.Dpi / 96.0;
         _size = (int)Math.Round(SizeDip * scale);
@@ -46,7 +50,6 @@ internal sealed class DesktopButton : IDisposable
         (_x, _y) = drawer.ButtonPosition ?? DefaultPosition(scale);
         Clamp();
         _window = new DesktopLayerWindow(desktop, BuildFace(), _x, _y, _size, _size, 0.9, _size / 2);
-        Reserve();
 
         _proc = HookCallback;
         _hook = NativeMethods.SetWindowsHookEx(NativeMethods.WH_MOUSE_LL, _proc, NativeMethods.GetModuleHandle(null), 0);
@@ -69,9 +72,6 @@ internal sealed class DesktopButton : IDisposable
         _y = Math.Clamp(_y, 0, Math.Max(0, areaHeight - _size));
     }
 
-    private void Reserve() =>
-        _drawer.Reserved = new NativeMethods.RECT { Left = _x, Top = _y, Right = _x + _size, Bottom = _y + _size };
-
     // A dark disc with a 3x3 grid of dots: the usual "all apps" glyph.
     private static FrameworkElement BuildFace()
     {
@@ -93,9 +93,12 @@ internal sealed class DesktopButton : IDisposable
         set => _window.Visible = value;
     }
 
+    private bool IsDesktopAt(NativeMethods.POINT screen) =>
+        NativeMethods.GetAncestor(NativeMethods.WindowFromPoint(screen), NativeMethods.GA_ROOT) == _desktop.Progman;
+
     private bool Contains(NativeMethods.POINT screen)
     {
-        if (NativeMethods.GetAncestor(NativeMethods.WindowFromPoint(screen), NativeMethods.GA_ROOT) != _desktop.Progman)
+        if (!IsDesktopAt(screen))
             return false; // another window is in front of the desktop here
         var p = _desktop.ScreenToIcon(screen);
         return p.X >= _x && p.X < _x + _size && p.Y >= _y && p.Y < _y + _size;
@@ -121,6 +124,8 @@ internal sealed class DesktopButton : IDisposable
                         _pressOrigin = (_x, _y);
                         return 1; // swallowed: explorer never sees it
                     }
+                    if (message == NativeMethods.WM_LBUTTONUP && IsDesktopAt(point))
+                        _dispatcher.BeginInvoke(_desktopMouseUp); // a drop on the desktop, most likely
                 }
                 else if (message == NativeMethods.WM_MOUSEMOVE)
                 {
@@ -141,7 +146,6 @@ internal sealed class DesktopButton : IDisposable
                     if (_dragging)
                     {
                         _dragging = false;
-                        Reserve();
                         _dispatcher.BeginInvoke(() => _drawer.ButtonPosition = (_x, _y));
                     }
                     else

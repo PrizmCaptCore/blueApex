@@ -57,7 +57,7 @@ public partial class App : Application
         // The on-desktop button needs the desktop window layout; without it the hotkey and tray still work.
         try
         {
-            _button = new DesktopButton(DesktopHost.Find(), _drawer, ToggleDrawer);
+            _button = new DesktopButton(DesktopHost.Find(), _drawer, ToggleDrawer, _drawer.PollNow);
         }
         catch (Exception ex) when (ex is NotSupportedException or Win32Exception)
         {
@@ -87,8 +87,15 @@ public partial class App : Application
         autostart.CheckedChanged += (_, _) => Autostart.Set(autostart.Checked);
         menu.Items.Add(autostart);
 
+        menu.Items.Add("공용 바탕화면 권한 설정 (관리자 권한)", null, (_, _) => GrantPublicDesktopAccess());
+        menu.Items.Add("숨긴 아이콘 모두 보이기", null, (_, _) =>
+        {
+            _drawer.UnhideAll();
+            MessageBox.Show("이 앱이 숨긴 아이콘을 모두 다시 보이게 했습니다.\n(앱이 켜져 있는 동안 고정되지 않은 아이콘은 곧 다시 서랍으로 들어갑니다.)",
+                "BlueApex", MessageBoxButton.OK, MessageBoxImage.Information);
+        });
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
-        menu.Items.Add("종료 (아이콘을 바탕화면으로 되돌림)", null, (_, _) => Shutdown());
+        menu.Items.Add("종료 (숨긴 아이콘을 다시 보임)", null, (_, _) => Shutdown());
 
         _trayIcon = new System.Windows.Forms.NotifyIcon
         {
@@ -103,8 +110,29 @@ public partial class App : Application
         };
         _drawer.Notice += (title, message) => _trayIcon.ShowBalloonTip(3000, title, message, System.Windows.Forms.ToolTipIcon.Info);
 
+        if (DesktopCatalog.ExplorerShowsHiddenFiles())
+            _trayIcon.ShowBalloonTip(6000, "숨김 파일 표시가 켜져 있습니다",
+                "탐색기 옵션에서 숨김 파일을 표시하는 동안에는 서랍에 넣은 아이콘이 바탕화면에 흐리게 남습니다.", System.Windows.Forms.ToolTipIcon.Warning);
+        if (_drawer.CannotHide.Count > 0)
+            Dispatcher.BeginInvoke(GrantPublicDesktopAccess);
+
         if (e.Args.Contains("--drawer")) // handy while developing: start with the drawer open
             _window.Open();
+    }
+
+    // Public-desktop shortcuts (Steam, Chrome... made by installers) need one elevated
+    // permission change before they can be hidden. Asked once per run while any remain.
+    private void GrantPublicDesktopAccess()
+    {
+        var pending = _drawer!.CannotHide.Count;
+        var answer = MessageBox.Show(
+            (pending > 0 ? $"공용 바탕화면의 아이콘 {pending}개는 권한이 없어 서랍에 넣을 수 없습니다.\n" : "") +
+            "관리자 권한으로 공용 바탕화면(C:\\Users\\Public\\Desktop)에 이 계정의 속성 변경 권한을 한 번 부여할까요?\n" +
+            "앞으로 설치되는 바로가기에도 적용됩니다.",
+            "BlueApex", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (answer != MessageBoxResult.Yes) return;
+        if (!_drawer.GrantPublicDesktopAccess())
+            MessageBox.Show("권한을 부여하지 못했습니다(취소했거나 실패).", "BlueApex", MessageBoxButton.OK, MessageBoxImage.Warning);
     }
 
     private void ToggleDrawer()
@@ -133,7 +161,7 @@ public partial class App : Application
         parent.DropDownItems.Clear();
         parent.DropDownItems.Add("지금 백업", null, (_, _) =>
         {
-            var path = BackupStore.Save(_drawer!.Icons.ToList());
+            var path = _drawer!.BackupNow();
             MessageBox.Show($"백업했습니다.\n{path}", "아이콘 배치 백업", MessageBoxButton.OK, MessageBoxImage.Information);
         });
         parent.DropDownItems.Add(new System.Windows.Forms.ToolStripSeparator());

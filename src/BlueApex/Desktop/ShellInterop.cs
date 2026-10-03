@@ -45,6 +45,23 @@ internal interface IShellBrowser
     void QueryActiveShellView([MarshalAs(UnmanagedType.IUnknown)] out object ppshv);
 }
 
+[ComImport, Guid("000214E3-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal interface IShellView
+{
+    void _GetWindow();
+    void _ContextSensitiveHelp();
+    void _TranslateAccelerator();
+    void _EnableModeless();
+    void _UIActivate();
+    void _Refresh();
+    void _CreateViewWindow();
+    void _DestroyViewWindow();
+    void _GetCurrentInfo();
+    void _AddPropertySheetPages();
+    /// <summary>Persists the view's state (icon positions included) so explorer does not revert to an older one.</summary>
+    [PreserveSig] int SaveViewState();
+}
+
 [ComImport, Guid("000214E6-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 internal interface IShellFolder
 {
@@ -57,6 +74,25 @@ internal interface IShellFolder
     void _GetAttributesOf();
     void _GetUIObjectOf();
     [PreserveSig] int GetDisplayNameOf(IntPtr pidl, uint uFlags, IntPtr pName);
+}
+
+/// <summary>The desktop view's item-level interface: items can be taken out of (and put back into) the view without touching files or positions.</summary>
+[ComImport, Guid("37A378C0-F82D-11CE-AE65-08002B2E1262"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal interface IShellFolderView
+{
+    void _Rearrange();
+    void _GetArrangeParam();
+    void _ArrangeGrid();
+    void _AutoArrange();
+    void _GetAutoArrange();
+    [PreserveSig] int AddObject(IntPtr pidl, out uint puItem);
+    void _GetObject();
+    [PreserveSig] int RemoveObject(IntPtr pidl, out uint puItem);
+    void _GetObjectCount();
+    void _SetObjectCount();
+    void _UpdateObject();
+    void _RefreshObject();
+    void _SetRedraw();
 }
 
 [ComImport, Guid("1AF3A467-214F-4298-908E-06B03E0B39F9"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -117,4 +153,11 @@ internal static class ShellNative
 
     [DllImport("shlwapi.dll")]
     public static extern int StrRetToBSTR(IntPtr pstr, IntPtr pidl, [MarshalAs(UnmanagedType.BStr)] out string pbstr);
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    public static extern int SHParseDisplayName(string name, IntPtr bindContext, out IntPtr pidl, uint attributesIn, out uint attributesOut);
+
+    /// <summary>The last item id of an absolute pidl, i.e. the child pidl relative to its parent folder.</summary>
+    [DllImport("shell32.dll")]
+    public static extern IntPtr ILFindLastID(IntPtr pidl);
 }
