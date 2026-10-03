@@ -29,6 +29,11 @@ src/BlueApex/
     DesktopPopupMenu.cs  바탕화면 위에서 띄우는 우클릭 메뉴.
     BackupStore.cs       아이콘 위치 스냅샷 저장/복원.
 
+  Ui/                    생김새. 화면 코드는 여기 것만 가져다 쓴다 (docs/design.md)
+    Theme.cs             색·모서리·간격·글자 크기 토큰. 강조색은 Windows 설정에서 읽는다.
+    Styles.xaml          Button/TextBox/CheckBox/ContextMenu/MenuItem/Separator의 암시적 스타일(앱 전체 자동 적용).
+    Parts.cs             카드·타일·묶음 머리줄·작은/큰 버튼·드롭 알약·불투명 패널·대화상자 부품.
+
   Widgets/
     WidgetHost.cs        위젯 인스턴스 생성·이동·삭제. 플러그인에 주는 IWidgetContext 구현도 여기.
     WidgetRegistry.cs    내장 + 플러그인 DLL에서 위젯 종류 찾기.
@@ -108,6 +113,8 @@ OnExit
 - **바탕화면 층 창은 세 가지 제약**이 있다(`DesktopLayerWindow` 주석): 레이어드 자식 창만 보임, 창 전체 투명도만 됨, 소프트웨어 렌더링.
   이건 Windows 11 24H2+의 바탕화면 구조 때문이고 실험으로 확인한 사실이다.
 - **종료 경로는 하나.** 트레이 "종료"든 `--exit`든 로그오프든 `Shutdown()` → `OnExit` → `UnhideAll()`. 강제 종료만 이 길을 건너뛴다.
+- **색과 크기는 `Ui/`에만 쓴다.** 화면 코드에 `Color.FromArgb(...)`나 `FontSize = 12` 같은 값이 직접 들어가면
+  나중에 디자인을 바꿀 때 파일마다 찾아다녀야 한다. `Theme` 토큰과 `Parts` 부품만 쓰면 한 곳만 고치면 된다. 자세한 것은 `docs/design.md`.
 
 ## 5. 이 코드에 나오는 C# 문법
 
@@ -144,6 +151,9 @@ OnExit
 | 저장 형식(새 필드) | `Zones/LayoutStore.cs`의 `LayoutFile` (필드만 추가하면 JSON에 자동 반영) |
 | 내장 위젯 추가 | `Widgets/BuiltInWidgets.cs` + `WidgetRegistry` 생성자에 `Register` 한 줄 |
 | 바탕화면 버튼 모양 | `Drawer/DesktopButton.cs` (`BuildFace`) |
+| 색·글자 크기·모서리 값 | `Ui/Theme.cs` (토큰 하나 = 그 값을 쓰는 모든 곳) |
+| 버튼·입력창·메뉴 생김새 | `Ui/Styles.xaml` (컨트롤 종류별 블록) |
+| 카드·타일·묶음 머리줄 구조 | `Ui/Parts.cs` (`Card`, `Tile`, `GroupHeader`, `Pill`, `Panel`, `Dialog`) |
 | 단축키 기본값 | `LayoutFile.Hotkey` |
 | 새 Win32 함수 | `DesktopHost.cs`의 `NativeMethods` |
 

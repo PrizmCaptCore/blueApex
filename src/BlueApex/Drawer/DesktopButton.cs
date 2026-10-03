@@ -4,6 +4,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using BlueApex.Desktop;
+using BlueApex.Ui;
 
 namespace BlueApex.Drawer;
 
@@ -51,15 +52,8 @@ internal sealed class DesktopButton : IDesktopLayerItem, IDisposable
     {
         var dots = new UniformGrid { Rows = 3, Columns = 3, Width = 26, Height = 26 };
         for (var i = 0; i < 9; i++)
-            dots.Children.Add(new Ellipse { Width = 5, Height = 5, Fill = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
-        return new Border
-        {
-            Background = new SolidColorBrush(Color.FromRgb(0x22, 0x24, 0x2C)),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(0x60, 0xFF, 0xFF, 0xFF)),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(SizeDip / 2),
-            Child = dots,
-        };
+            dots.Children.Add(new Ellipse { Width = 5, Height = 5, Fill = Theme.Text, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
+        return Parts.Panel(dots, corner: SizeDip / 2, padding: new Thickness(0));
     }
 
     public NativeMethods.RECT Bounds => new() { Left = _x, Top = _y, Right = _x + _size, Bottom = _y + _size };

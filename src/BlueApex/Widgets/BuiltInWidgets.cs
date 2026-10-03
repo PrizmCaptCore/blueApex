@@ -4,25 +4,17 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 using BlueApex.Sdk;
+using BlueApex.Ui;
 
 namespace BlueApex.Widgets;
 
-/// <summary>Shared look for the built-in widgets: a dark rounded panel. Opacity and the actual rounding come from the layer window.</summary>
+/// <summary>Shared look for the built-in widgets: the app's opaque panel (see Ui/Parts.cs). Opacity and the window rounding come from the layer window.</summary>
 internal static class WidgetStyle
 {
-    public const double CornerDip = 14;
-    public static readonly Brush Background = new SolidColorBrush(Color.FromRgb(0x1E, 0x1E, 0x24));
-    public static readonly Brush Dim = new SolidColorBrush(Color.FromArgb(0xB0, 0xFF, 0xFF, 0xFF));
+    public const double CornerDip = Theme.RadiusCard;
+    public static readonly Brush Dim = Theme.TextDim;
 
-    public static Border Panel(UIElement child) => new()
-    {
-        Background = Background,
-        BorderBrush = new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF)),
-        BorderThickness = new Thickness(1),
-        CornerRadius = new CornerRadius(CornerDip),
-        Padding = new Thickness(16, 12, 16, 12),
-        Child = child,
-    };
+    public static Border Panel(UIElement child) => Parts.Panel(child);
 }
 
 /// <summary>Time and date, refreshed every second.</summary>
@@ -35,8 +27,8 @@ internal sealed class ClockProvider : IWidgetProvider
 
     private sealed class ClockWidget : IWidget
     {
-        private readonly TextBlock _time = new() { Foreground = Brushes.White, FontSize = 52, FontWeight = FontWeights.Light, HorizontalAlignment = HorizontalAlignment.Center };
-        private readonly TextBlock _date = new() { Foreground = WidgetStyle.Dim, FontSize = 16, HorizontalAlignment = HorizontalAlignment.Center };
+        private readonly TextBlock _time = new() { Foreground = Theme.Text, FontSize = Theme.FontDisplay, FontWeight = FontWeights.Light, HorizontalAlignment = HorizontalAlignment.Center };
+        private readonly TextBlock _date = new() { Foreground = Theme.TextDim, FontSize = Theme.FontTitle, HorizontalAlignment = HorizontalAlignment.Center };
         private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
 
         public ClockWidget()
@@ -71,12 +63,12 @@ internal sealed class MemoProvider : IWidgetProvider
     private sealed class MemoWidget : IWidget
     {
         private readonly IWidgetContext _context;
-        private readonly TextBlock _text = new() { Foreground = Brushes.White, FontSize = 14, TextWrapping = TextWrapping.Wrap, TextTrimming = TextTrimming.CharacterEllipsis };
+        private readonly TextBlock _text = new() { Foreground = Theme.Text, FontSize = Theme.FontBody + 1, TextWrapping = TextWrapping.Wrap, TextTrimming = TextTrimming.CharacterEllipsis };
 
         public MemoWidget(IWidgetContext context)
         {
             _context = context;
-            var header = new TextBlock { Text = "메모", Foreground = WidgetStyle.Dim, FontSize = 12, Margin = new Thickness(0, 0, 0, 8) };
+            var header = new TextBlock { Text = "메모", Foreground = Theme.TextDim, FontSize = Theme.FontSmall, Margin = new Thickness(0, 0, 0, Theme.Space2) };
             DockPanel.SetDock(header, Dock.Top);
             View = WidgetStyle.Panel(new DockPanel { Children = { header, _text } });
             Show(context.Settings);

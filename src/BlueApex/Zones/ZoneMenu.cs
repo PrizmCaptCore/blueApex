@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using BlueApex.Desktop;
+using BlueApex.Ui;
 
 namespace BlueApex.Zones;
 
@@ -94,33 +95,19 @@ internal sealed class ZoneMenu : IDisposable
         {
             Text = current,
             MinWidth = 320,
-            Margin = new Thickness(0, 0, 0, 12),
+            Margin = new Thickness(0, 0, 0, Theme.Space3),
             AcceptsReturn = multiline,
             MinHeight = multiline ? 120 : 0,
             VerticalScrollBarVisibility = multiline ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled,
         };
-        var ok = new Button { Content = "확인", IsDefault = !multiline, Width = 80, Margin = new Thickness(0, 0, 8, 0) };
-        var cancel = new Button { Content = "취소", IsCancel = true, Width = 80 };
-        var body = new StackPanel { Margin = new Thickness(16) };
+        var (buttons, ok, _) = Parts.DialogButtons();
+        ok.IsDefault = !multiline; // in a multiline box Enter should add a line, not close
+        var body = new StackPanel { Margin = new Thickness(Theme.Space4) };
         if (hint != null)
-            body.Children.Add(new TextBlock { Text = hint, Margin = new Thickness(0, 0, 0, 8), Opacity = 0.75 });
+            body.Children.Add(new TextBlock { Text = hint, Foreground = Theme.TextDim, Margin = new Thickness(0, 0, 0, Theme.Space2) });
         body.Children.Add(box);
-        body.Children.Add(new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Children = { ok, cancel },
-        });
-        var window = new Window
-        {
-            Title = title,
-            SizeToContent = SizeToContent.WidthAndHeight,
-            WindowStartupLocation = WindowStartupLocation.CenterScreen,
-            ResizeMode = ResizeMode.NoResize,
-            Topmost = true,
-            ShowInTaskbar = false,
-            Content = body,
-        };
+        body.Children.Add(buttons);
+        var window = Parts.Dialog(title, body);
         ok.Click += (_, _) => window.DialogResult = true;
         box.Loaded += (_, _) =>
         {

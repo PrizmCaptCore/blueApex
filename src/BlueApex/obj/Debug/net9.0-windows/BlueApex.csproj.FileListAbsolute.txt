@@ -23,3 +23,5 @@ E:\windows_project\desktop_folder_cleaner\src\BlueApex\bin\Debug\net9.0-windows\
 E:\windows_project\desktop_folder_cleaner\src\BlueApex\bin\Debug\net9.0-windows\BlueApex.Sdk.xml
 E:\windows_project\desktop_folder_cleaner\src\BlueApex\obj\Debug\net9.0-windows\BlueApex.csproj.AssemblyReference.cache
 E:\windows_project\desktop_folder_cleaner\src\BlueApex\obj\Debug\net9.0-windows\BlueApex.csproj.Up2Date
+E:\windows_project\desktop_folder_cleaner\src\BlueApex\obj\Debug\net9.0-windows\BlueApex_MarkupCompile.lref
+E:\windows_project\desktop_folder_cleaner\src\BlueApex\obj\Debug\net9.0-windows\Ui\Styles.baml

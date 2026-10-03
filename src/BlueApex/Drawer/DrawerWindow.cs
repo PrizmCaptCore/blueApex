@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using BlueApex.Desktop;
+using BlueApex.Ui;
 using BlueApex.Zones;
 
 namespace BlueApex.Drawer;
@@ -17,7 +18,7 @@ namespace BlueApex.Drawer;
 internal sealed class DrawerWindow : Window
 {
     private const string DragFormat = "BlueApex.IconId";
-    private const int IconPx = 48;
+    private const int IconPx = (int)Theme.IconSize;
 
     private readonly DrawerManager _drawer;
     private readonly IconLoader _iconLoader = new();
@@ -35,7 +36,7 @@ internal sealed class DrawerWindow : Window
 
         WindowStyle = WindowStyle.None;
         AllowsTransparency = true;
-        Background = new SolidColorBrush(Color.FromArgb(0xD8, 0x10, 0x10, 0x14));
+        Background = Theme.Scrim;
         Topmost = true;
         ShowInTaskbar = false;
         ResizeMode = ResizeMode.NoResize;
@@ -44,14 +45,10 @@ internal sealed class DrawerWindow : Window
         _search = new TextBox
         {
             Width = 640,
-            FontSize = 20,
+            FontSize = Theme.FontLarge,
             Padding = new Thickness(14, 8, 14, 8),
             Margin = new Thickness(0, 36, 0, 24),
             HorizontalAlignment = HorizontalAlignment.Center,
-            Background = new SolidColorBrush(Color.FromArgb(0xFF, 0x2A, 0x2A, 0x30)),
-            Foreground = Brushes.White,
-            CaretBrush = Brushes.White,
-            BorderBrush = new SolidColorBrush(Color.FromArgb(0x60, 0xFF, 0xFF, 0xFF)),
         };
         _search.TextChanged += (_, _) =>
         {
@@ -66,7 +63,7 @@ internal sealed class DrawerWindow : Window
         var hint = new TextBlock
         {
             Text = $"Esc 닫기 · {_drawer.Hotkey} 열고 닫기 · Ctrl/Shift+클릭으로 여러 개 선택 · 끌어서 구역 이동·꺼내기·삭제",
-            Foreground = new SolidColorBrush(Color.FromArgb(0x80, 0xFF, 0xFF, 0xFF)),
+            Foreground = Theme.TextFaint,
             HorizontalAlignment = HorizontalAlignment.Center,
             Margin = new Thickness(0, 0, 0, 16),
         };
@@ -80,7 +77,7 @@ internal sealed class DrawerWindow : Window
             Visibility = Visibility.Collapsed,
             Children =
             {
-                BuildDropTarget("바탕화면에 꺼내기", Color.FromRgb(0x2E, 0x7D, 0xD6), ids =>
+                BuildDropTarget("바탕화면에 꺼내기", Theme.AccentColor, ids =>
                 {
                     foreach (var id in ids)
                     {
@@ -88,7 +85,7 @@ internal sealed class DrawerWindow : Window
                         else _drawer.Pin(id);
                     }
                 }),
-                BuildDropTarget("휴지통으로", Color.FromRgb(0xC0, 0x39, 0x2B), ids =>
+                BuildDropTarget("휴지통으로", Theme.DangerColor, ids =>
                 {
                     // Apps are not files: dropping one here just takes it out of its zone.
                     foreach (var id in ids.Where(AppCatalog.IsAppId)) _drawer.RemoveMember(id);
@@ -108,8 +105,8 @@ internal sealed class DrawerWindow : Window
         // The marquee (rubber-band) rectangle is drawn on an overlay above everything.
         _marquee = new System.Windows.Shapes.Rectangle
         {
-            Fill = new SolidColorBrush(Color.FromArgb(0x30, 0x4C, 0xAF, 0xF5)),
-            Stroke = new SolidColorBrush(Color.FromArgb(0xC0, 0x4C, 0xAF, 0xF5)),
+            Fill = Theme.MarqueeFill,
+            Stroke = Theme.MarqueeStroke,
             StrokeThickness = 1,
             Visibility = Visibility.Collapsed,
         };
@@ -296,35 +293,16 @@ internal sealed class DrawerWindow : Window
 
     private Border BuildCard(string title, IEnumerable<DesktopIcon> icons, Zone zone)
     {
-        var header = new TextBlock
-        {
-            Text = title,
-            Foreground = Brushes.White,
-            FontSize = 16,
-            FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(6, 0, 6, 10),
-        };
         // Portals show a folder as-is; other zones get the layout selector (manual / name / date / type).
-        var headerRow = zone.IsPortal
-            ? new DockPanel { Children = { header } }
-            : HeaderRow(header, SortSelector(zone.SortMode, mode => _drawer.SetSortMode(zone, mode),
-                ("manual", "수동"), ("name", "이름"), ("date", "날짜"), ("type", "종류")));
+        var selector = zone.IsPortal ? null : SortSelector(zone.SortMode, mode => _drawer.SetSortMode(zone, mode),
+            ("manual", "수동"), ("name", "이름"), ("date", "날짜"), ("type", "종류"));
+        var (card, body, header) = Parts.Card(zone.IsPortal ? "📁 " + title : title, selector);
         var tiles = new WrapPanel();
-        var body = new StackPanel { Children = { headerRow, tiles } };
-        var card = new Border
-        {
-            Width = 440,
-            MinHeight = 140,
-            Margin = new Thickness(12),
-            Padding = new Thickness(12),
-            CornerRadius = new CornerRadius(14),
-            Background = new SolidColorBrush(Color.FromArgb(0xC8, 0x1E, 0x1E, 0x24)),
-            Child = body,
-            AllowDrop = true,
-            Tag = zone,
-        };
+        body.Children.Add(tiles);
+        card.AllowDrop = true;
+        card.Tag = zone;
         var idle = card.Background;
-        var hover = new SolidColorBrush(Color.FromArgb(0xE0, 0x2E, 0x3A, 0x50));
+        var hover = Theme.CardHover;
         card.Drop += (_, e) =>
         {
             card.Background = idle;
@@ -411,8 +389,6 @@ internal sealed class DrawerWindow : Window
         // Right-click anywhere in the card that is not a tile (tiles have their own menu).
         card.ContextMenu = menu;
         header.Cursor = Cursors.Hand;
-        if (zone.IsPortal)
-            header.Text = "📁 " + title;
 
         if (!zone.IsPortal && zone.SortMode != "manual")
         {
@@ -427,31 +403,14 @@ internal sealed class DrawerWindow : Window
         return card;
     }
 
-    // Title on the left, a small selector on the right.
-    private static DockPanel HeaderRow(TextBlock title, Button selector)
-    {
-        DockPanel.SetDock(selector, Dock.Right);
-        return new DockPanel { Children = { selector, title } };
-    }
-
     // A small "현재값 ▾" button that opens a menu of choices. A plain ComboBox's dropdown
     // misbehaved in this topmost, transparent window; context menus are known to work here.
     private static Button SortSelector(string current, Action<string> changed, params (string Value, string Label)[] choices)
     {
         var currentLabel = choices.FirstOrDefault(c => c.Value == current).Label ?? choices[0].Label;
-        var button = new Button
-        {
-            Content = currentLabel + " ▾",
-            FontSize = 12,
-            Padding = new Thickness(10, 3, 8, 3),
-            Margin = new Thickness(6, -2, 6, 0),
-            VerticalAlignment = VerticalAlignment.Top,
-            Background = new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF)),
-            Foreground = Brushes.White,
-            BorderThickness = new Thickness(0),
-            Cursor = Cursors.Hand,
-            Tag = "control",
-        };
+        var button = Parts.SmallButton(currentLabel + " ▾");
+        button.Margin = new Thickness(Theme.Space1 + 2, -2, Theme.Space1 + 2, 0);
+        button.VerticalAlignment = VerticalAlignment.Top;
         var menu = new ContextMenu { PlacementTarget = button, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
         foreach (var (value, label) in choices)
             menu.Items.Add(MenuItem((value == current ? "● " : "○ ") + label, () =>
@@ -475,18 +434,7 @@ internal sealed class DrawerWindow : Window
         {
             var key = cardKey + "/" + group.Label;
             var open = _openSections.Contains(key);
-            var arrow = new TextBlock { Foreground = WidgetDim, FontSize = 12, Width = 16, Text = open ? "▾" : "▸" };
-            var label = new TextBlock { Foreground = Brushes.White, FontSize = 13, FontWeight = FontWeights.SemiBold, Text = $"{group.Label}  ({group.Items.Count})" };
-            var headerBar = new Border
-            {
-                Background = new SolidColorBrush(Color.FromArgb(0x28, 0xFF, 0xFF, 0xFF)),
-                CornerRadius = new CornerRadius(6),
-                Padding = new Thickness(10, 5, 10, 5),
-                Margin = new Thickness(4, 4, 4, 0),
-                Cursor = Cursors.Hand,
-                Tag = "control",
-                Child = new DockPanel { Children = { arrow, label } },
-            };
+            var (headerBar, arrow) = Parts.GroupHeader($"{group.Label}  ({group.Items.Count})", open);
             var panel = new WrapPanel { Visibility = open ? Visibility.Visible : Visibility.Collapsed };
             var content = new StackPanel { Children = { panel } };
             LazyTiles? lazy = null;
@@ -516,8 +464,6 @@ internal sealed class DrawerWindow : Window
             _sections.Add((cardKey, query => { Ensure(); lazy!.BuildMatching(query); }, SetExpanded));
         }
     }
-
-    private static readonly Brush WidgetDim = new SolidColorBrush(Color.FromArgb(0xB0, 0xFF, 0xFF, 0xFF));
 
     private IEnumerable<(string Label, List<DesktopIcon> Items)> GroupIcons(List<DesktopIcon> icons, string mode)
     {
@@ -612,28 +558,11 @@ internal sealed class DrawerWindow : Window
     private Border BuildAppsCard()
     {
         var apps = _drawer.Apps;
-        var header = new TextBlock
-        {
-            Text = apps.Count > 0 ? $"모든 앱  ({apps.Count})" : "모든 앱  (불러오는 중...)",
-            Foreground = Brushes.White,
-            FontSize = 16,
-            FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(6, 0, 6, 10),
-        };
-        var headerRow = HeaderRow(header, SortSelector(_drawer.AppSections ? "letters" : "flat",
-            mode => _drawer.AppSections = mode == "letters", ("flat", "전체"), ("letters", "글자별")));
+        var selector = SortSelector(_drawer.AppSections ? "letters" : "flat",
+            mode => _drawer.AppSections = mode == "letters", ("flat", "전체"), ("letters", "글자별"));
+        var (card, body, _) = Parts.Card(apps.Count > 0 ? $"모든 앱  ({apps.Count})" : "모든 앱  (불러오는 중...)", selector, alternate: true);
         var tiles = new WrapPanel();
-        var body = new StackPanel { Children = { headerRow, tiles } };
-        var card = new Border
-        {
-            Width = 440,
-            MinHeight = 140,
-            Margin = new Thickness(12),
-            Padding = new Thickness(12),
-            CornerRadius = new CornerRadius(14),
-            Background = new SolidColorBrush(Color.FromArgb(0xC8, 0x1E, 0x24, 0x2E)),
-            Child = body,
-        };
+        body.Children.Add(tiles);
         var menu = new ContextMenu();
         var latin = _drawer.AppSortLatinFirst;
         menu.Items.Add(MenuItem((latin ? "● " : "○ ") + "정렬: A→Z 먼저, 그다음 가나다", () => _drawer.AppSortLatinFirst = true));
@@ -711,17 +640,7 @@ internal sealed class DrawerWindow : Window
         {
             if (_more != null) _body.Children.Remove(_more);
             if (_pending.Count == 0) return;
-            _more = new Button
-            {
-                Content = $"더 보기 (남은 {_pending.Count}개)",
-                Margin = new Thickness(6, 8, 6, 0),
-                Padding = new Thickness(12, 6, 12, 6),
-                HorizontalAlignment = HorizontalAlignment.Left,
-                Background = new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF)),
-                Foreground = Brushes.White,
-                BorderThickness = new Thickness(0),
-                Cursor = Cursors.Hand,
-            };
+            _more = Parts.SmallButton($"더 보기 (남은 {_pending.Count}개)");
             _more.Click += (_, _) => AddPage();
             _body.Children.Add(_more);
         }
@@ -732,8 +651,8 @@ internal sealed class DrawerWindow : Window
 
     // --- selection ---
 
-    private static readonly SolidColorBrush SelectedBrush = new(Color.FromArgb(0x60, 0x4C, 0xAF, 0xF5));
-    private static readonly SolidColorBrush HoverBrush = new(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF));
+    private static readonly Brush SelectedBrush = Theme.Selection;
+    private static readonly Brush HoverBrush = Theme.Hover;
     private readonly HashSet<string> _selected = new();
     private readonly Dictionary<string, Border> _tileById = new();
     private string? _anchorId; // for Shift+click ranges
@@ -771,7 +690,7 @@ internal sealed class DrawerWindow : Window
     private FrameworkElement BuildTile(DesktopIcon icon)
     {
         var portalEntry = !_drawer.IsDesktopItem(icon.Id);
-        var image = new Image { Width = IconPx, Height = IconPx, Margin = new Thickness(0, 6, 0, 4) };
+        var (tile, image) = Parts.Tile(icon.Name, badge: _drawer.IsOnDesktop(icon.Id));
         if (icon.IsApp)
         {
             // App icons can be slow for Store apps; fetch them off the UI thread like thumbnails.
@@ -796,41 +715,6 @@ internal sealed class DrawerWindow : Window
         {
             image.Source = _iconLoader.Get(icon.Id, IconPx);
         }
-        var name = new TextBlock
-        {
-            Text = icon.Name,
-            Foreground = Brushes.White,
-            FontSize = 12,
-            TextAlignment = TextAlignment.Center,
-            TextWrapping = TextWrapping.Wrap,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            MaxHeight = 34,
-        };
-        var top = new Grid { Children = { image } };
-        if (_drawer.IsOnDesktop(icon.Id))
-        {
-            // Small badge: this icon is also out on the desktop.
-            top.Children.Add(new Border
-            {
-                Width = 10, Height = 10, CornerRadius = new CornerRadius(5),
-                Background = new SolidColorBrush(Color.FromRgb(0x4C, 0xAF, 0xF5)),
-                HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(0, 4, 8, 0),
-            });
-        }
-        var stack = new StackPanel { Children = { top, name } };
-
-        var tile = new Border
-        {
-            Width = 100,
-            Height = 104,
-            Margin = new Thickness(2),
-            CornerRadius = new CornerRadius(8),
-            Background = Brushes.Transparent,
-            Child = stack,
-            Cursor = Cursors.Hand,
-            ToolTip = icon.Name,
-        };
         _tileById[icon.Id] = tile;
         if (_selected.Contains(icon.Id)) tile.Background = SelectedBrush;
 
@@ -966,33 +850,15 @@ internal sealed class DrawerWindow : Window
 
     private Border BuildAddCard()
     {
-        var button = new Button
-        {
-            Content = "+ 새 구역",
-            FontSize = 15,
-            Padding = new Thickness(18, 10, 18, 10),
-            Background = new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF)),
-            Foreground = Brushes.White,
-            BorderThickness = new Thickness(0),
-            Cursor = Cursors.Hand,
-        };
+        var button = Parts.BigButton("+ 새 구역");
         button.Click += (_, _) =>
         {
             var name = ZoneMenu.AskTitle("새 구역");
             if (!string.IsNullOrWhiteSpace(name)) _drawer.AddZone(name);
         };
-        var portal = new Button
-        {
-            Content = "+ 폴더 포털",
-            FontSize = 15,
-            Padding = new Thickness(18, 10, 18, 10),
-            Margin = new Thickness(0, 10, 0, 0),
-            Background = new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF)),
-            Foreground = Brushes.White,
-            BorderThickness = new Thickness(0),
-            Cursor = Cursors.Hand,
-            ToolTip = "폴더 하나의 내용을 그대로 보여 주는 구역",
-        };
+        var portal = Parts.BigButton("+ 폴더 포털");
+        portal.Margin = new Thickness(0, 10, 0, 0);
+        portal.ToolTip = "폴더 하나의 내용을 그대로 보여 주는 구역";
         portal.Click += (_, _) =>
         {
             var folder = PickFolder(null);
@@ -1038,17 +904,9 @@ internal sealed class DrawerWindow : Window
     // A labelled pill shown under the cards during a drag; dropping an icon on it runs the action.
     private Border BuildDropTarget(string label, Color color, Action<IReadOnlyList<string>> onDrop)
     {
-        var idle = new SolidColorBrush(Color.FromArgb(0xC0, color.R, color.G, color.B));
+        var target = Parts.Pill(label, color);
+        var idle = target.Background;
         var hover = new SolidColorBrush(color);
-        var target = new Border
-        {
-            Padding = new Thickness(28, 14, 28, 14),
-            Margin = new Thickness(12, 0, 12, 0),
-            CornerRadius = new CornerRadius(12),
-            Background = idle,
-            AllowDrop = true,
-            Child = new TextBlock { Text = label, Foreground = Brushes.White, FontSize = 15, FontWeight = FontWeights.SemiBold },
-        };
         target.DragEnter += (_, e) => { if (e.Data.GetDataPresent(DragFormat)) target.Background = hover; };
         target.DragLeave += (_, _) => target.Background = idle;
         target.DragOver += (_, e) => e.Effects = e.Data.GetDataPresent(DragFormat) ? DragDropEffects.Move : DragDropEffects.None;
