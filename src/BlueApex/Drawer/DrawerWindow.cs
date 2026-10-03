@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -145,7 +146,13 @@ internal sealed class DrawerWindow : Window
             else ClearSelection(); // a plain click in a card's gap
             e.Handled = true;
         };
-        Deactivated += (_, _) => Hide();
+        // Losing focus closes the drawer, unless focus went to one of our own dialogs
+        // (rename box, folder picker, confirmation); those return focus here afterwards.
+        Deactivated += (_, _) => Dispatcher.BeginInvoke(() =>
+        {
+            NativeMethods.GetWindowThreadProcessId(NativeMethods.GetForegroundWindow(), out var pid);
+            if (pid != Environment.ProcessId) Hide();
+        });
         PreviewKeyDown += OnKey;
     }
 
@@ -299,13 +306,54 @@ internal sealed class DrawerWindow : Window
 
         var isDefault = _drawer.IsDefault(zone);
         var menu = new ContextMenu();
+        if (zone.IsPortal)
+        {
+            menu.Items.Add(MenuItem("폴더 열기", () => Process.Start(new ProcessStartInfo(zone.PortalPath!) { UseShellExecute = true })));
+            menu.Items.Add(MenuItem("새 폴더 만들기 (이 폴더 안에)", () =>
+            {
+                var name = ZoneMenu.AskText("새 폴더", "새 폴더", null, multiline: false)?.Trim();
+                if (string.IsNullOrWhiteSpace(name)) return;
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(zone.PortalPath!, name));
+                Refresh();
+            }));
+            menu.Items.Add(new Separator());
+        }
+        else
+        {
+            menu.Items.Add(MenuItem("새 폴더 만들기", () =>
+            {
+                var name = ZoneMenu.AskText("새 폴더", "새 폴더", "바탕화면에 폴더를 만들고 이 구역에 넣습니다.", multiline: false)?.Trim();
+                if (!string.IsNullOrWhiteSpace(name)) _drawer.CreateFolder(zone, name);
+            }));
+            menu.Items.Add(new Separator());
+        }
         menu.Items.Add(MenuItem("이름 바꾸기", () =>
         {
             var name = ZoneMenu.AskTitle(zone.Title);
             if (!string.IsNullOrWhiteSpace(name)) _drawer.RenameZone(zone, name);
         }));
-        if (!isDefault)
+        if (zone.IsPortal)
         {
+            menu.Items.Add(MenuItem("포털 폴더 바꾸기...", () =>
+            {
+                var folder = PickFolder(zone.PortalPath);
+                if (folder != null) _drawer.SetPortal(zone, folder);
+            }));
+            menu.Items.Add(MenuItem("포털 해제 (빈 구역으로)", () => _drawer.SetPortal(zone, null)));
+            menu.Items.Add(new Separator());
+            menu.Items.Add(MenuItem("구역 삭제", () =>
+            {
+                if (MessageBox.Show($"'{zone.Title}' 포털 구역을 삭제할까요?\n폴더와 파일은 그대로 남습니다.", "구역 삭제", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+                    _drawer.RemoveZone(zone);
+            }));
+        }
+        else if (!isDefault)
+        {
+            menu.Items.Add(MenuItem("폴더 포털로 바꾸기...", () =>
+            {
+                var folder = PickFolder(null);
+                if (folder != null) _drawer.SetPortal(zone, folder);
+            }));
             // The default zone is where unclaimed icons land, so rules on it would be pointless.
             menu.Items.Add(MenuItem("자동 분류 규칙...", () =>
             {
@@ -323,8 +371,11 @@ internal sealed class DrawerWindow : Window
                     _drawer.RemoveZone(zone);
             }));
         }
-        header.ContextMenu = menu;
+        // Right-click anywhere in the card that is not a tile (tiles have their own menu).
+        card.ContextMenu = menu;
         header.Cursor = Cursors.Hand;
+        if (zone.IsPortal)
+            header.Text = "📁 " + title;
 
         foreach (var icon in icons)
         {
@@ -375,7 +426,8 @@ internal sealed class DrawerWindow : Window
 
     private FrameworkElement BuildTile(DesktopIcon icon)
     {
-        var image = new Image { Source = _iconLoader.Get(icon.Id, IconPx), Width = IconPx, Height = IconPx, Margin = new Thickness(0, 6, 0, 4) };
+        var portalEntry = !_drawer.IsDesktopItem(icon.Id);
+        var image = new Image { Source = _iconLoader.Get(icon.Id, IconPx, thumbnail: portalEntry), Width = IconPx, Height = IconPx, Margin = new Thickness(0, 6, 0, 4) };
         var name = new TextBlock
         {
             Text = icon.Name,
@@ -440,6 +492,7 @@ internal sealed class DrawerWindow : Window
         };
         tile.MouseMove += (_, e) =>
         {
+            if (portalEntry) return; // files seen through a portal are not desktop items; nothing to drag them into
             if (e.LeftButton != MouseButtonState.Pressed || _dragId != icon.Id) return;
             var delta = e.GetPosition(this) - _dragStart;
             if (Math.Abs(delta.X) < 6 && Math.Abs(delta.Y) < 6) return;
@@ -480,6 +533,16 @@ internal sealed class DrawerWindow : Window
         var label = many ? $"선택한 {ids.Count}개" : "";
         var menu = new ContextMenu();
 
+        if (!_drawer.IsDesktopItem(icon.Id))
+        {
+            // A file seen through a portal: open, locate, delete. No pinning or zones.
+            menu.Items.Add(MenuItem("열기", () => Launch(icon)));
+            menu.Items.Add(MenuItem("파일 위치 열기", () => DrawerManager.OpenLocation(icon)));
+            menu.Items.Add(new Separator());
+            menu.Items.Add(MenuItem("삭제 (휴지통으로)", () => ConfirmDelete(new[] { icon })));
+            return menu;
+        }
+
         var toggleable = ids.Where(_drawer.CanToggle).ToList();
         if (toggleable.Count > 0)
         {
@@ -490,7 +553,7 @@ internal sealed class DrawerWindow : Window
             }));
         }
         var move = new MenuItem { Header = $"{label} 구역으로 이동".Trim() };
-        foreach (var zone in _drawer.Zones)
+        foreach (var zone in _drawer.Zones.Where(z => !z.IsPortal))
             move.Items.Add(MenuItem(_drawer.IsDefault(zone) ? zone.Title + " (기본)" : zone.Title, () =>
             {
                 foreach (var id in ids) _drawer.MoveToZone(id, zone);
@@ -524,14 +587,44 @@ internal sealed class DrawerWindow : Window
             var name = ZoneMenu.AskTitle("새 구역");
             if (!string.IsNullOrWhiteSpace(name)) _drawer.AddZone(name);
         };
+        var portal = new Button
+        {
+            Content = "+ 폴더 포털",
+            FontSize = 15,
+            Padding = new Thickness(18, 10, 18, 10),
+            Margin = new Thickness(0, 10, 0, 0),
+            Background = new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF)),
+            Foreground = Brushes.White,
+            BorderThickness = new Thickness(0),
+            Cursor = Cursors.Hand,
+            ToolTip = "폴더 하나의 내용을 그대로 보여 주는 구역",
+        };
+        portal.Click += (_, _) =>
+        {
+            var folder = PickFolder(null);
+            if (folder != null) _drawer.AddPortal(folder);
+        };
         return new Border
         {
             Width = 200,
             MinHeight = 140,
             Margin = new Thickness(12),
-            Child = button,
+            Child = new StackPanel { Children = { button, portal } },
             VerticalAlignment = VerticalAlignment.Top,
         };
+    }
+
+    // The drawer is topmost; the dialog is modal to it so it is not hidden behind.
+    private static string? PickFolder(string? current)
+    {
+        using var dialog = new System.Windows.Forms.FolderBrowserDialog
+        {
+            Description = "포털로 보여 줄 폴더",
+            UseDescriptionForTitle = true,
+            InitialDirectory = current ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ShowNewFolderButton = true,
+        };
+        return dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK ? dialog.SelectedPath : null;
     }
 
     private void ConfirmDelete(IReadOnlyList<DesktopIcon> icons)

@@ -27,6 +27,15 @@ internal sealed class Zone
     /// <summary>This zone's own look; null means the layout's default style.</summary>
     public ZoneStyle? Style { get; set; }
 
+    /// <summary>
+    /// A "portal": instead of members, the card shows the live contents of this
+    /// folder (e.g. the Pictures folder). Null for a normal zone.
+    /// </summary>
+    public string? PortalPath { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsPortal => PortalPath != null;
+
     /// <summary>Icon ids (<see cref="Desktop.DesktopIcon.Id"/>) in slot order.</summary>
     public List<string> Members { get; set; } = new();
 

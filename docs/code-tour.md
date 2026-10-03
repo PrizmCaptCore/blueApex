@@ -77,6 +77,11 @@ OnExit
 **새 파일이 바탕화면에 생김** — 1초마다 `Poll()`: `DesktopCatalog.Scan`으로 현재 목록을 얻어 직전 목록과 비교.
 새 항목이면 규칙(`ZoneRules.Target`)으로 구역을 정하고(없으면 기본 구역) 숨긴 뒤 트레이 알림. 사라진 항목은 모든 목록에서 제거.
 
+**새 폴더 / 폴더 포털** — 카드 우클릭 "새 폴더 만들기" → `DrawerManager.CreateFolder(zone, name)`: `DesktopCatalog.CreateDesktopFolder`로 바탕화면에 만들고,
+`Refresh()`로 목록에 먼저 넣은 뒤(폴링이 "새 항목"으로 오해하지 않도록) 구역에 추가하고 숨긴다.
+포털은 `Zone.PortalPath`가 있는 구역이다. `IconsOf(zone)`가 멤버 대신 `DesktopCatalog.EnumerateFolder(path)`를 돌려주고,
+서랍은 `IsDesktopItem(id)`가 false인 타일(포털 파일)에는 끌기·꺼내기·구역 이동을 주지 않는다. 포털은 규칙·기본 구역 대상에서도 빠진다(`RuleZones`).
+
 **위젯** — `WidgetHost`가 `layout.json`의 `Widgets`마다 `WidgetItem`을 만든다. `WidgetItem`은
 `provider.Create(context)`로 플러그인 위젯을 얻고, 그 `View`를 `DesktopLayerWindow`에 넣고, 자신을 `DesktopLayerInput.Items`에 등록한다.
 훅이 그 창 영역의 누름을 감지하면 `MoveTo/Moved/Click/RightClick`을 불러 준다.
@@ -122,6 +127,8 @@ OnExit
 | 서랍 모양·동작 | `DrawerWindow.cs` (`BuildCard`, `BuildTile`, `BuildTileMenu`) |
 | 꺼내기/숨기기 규칙 | `DrawerManager.cs` (`Reconcile`, `Poll`, `Hide`, `Unhide`) |
 | 자동 분류 패턴 문법 | `Zones/ZoneRules.cs` |
+| 포털에 보이는 항목·개수·정렬 | `Desktop/DesktopCatalog.cs` (`EnumerateFolder`) |
+| 카드 우클릭 메뉴 | `DrawerWindow.cs` (`BuildCard`의 `menu`) |
 | 저장 형식(새 필드) | `Zones/LayoutStore.cs`의 `LayoutFile` (필드만 추가하면 JSON에 자동 반영) |
 | 내장 위젯 추가 | `Widgets/BuiltInWidgets.cs` + `WidgetRegistry` 생성자에 `Register` 한 줄 |
 | 바탕화면 버튼 모양 | `Drawer/DesktopButton.cs` (`BuildFace`) |

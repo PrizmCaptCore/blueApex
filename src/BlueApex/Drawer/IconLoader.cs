@@ -9,15 +9,17 @@ internal sealed class IconLoader
 {
     private readonly Dictionary<string, ImageSource?> _cache = new();
 
-    public ImageSource? Get(string id, int sizePx)
+    /// <param name="thumbnail">Prefer a thumbnail (for pictures, videos) over the file-type icon.</param>
+    public ImageSource? Get(string id, int sizePx, bool thumbnail = false)
     {
-        if (_cache.TryGetValue(id, out var cached)) return cached;
-        var image = Load(id, sizePx);
-        _cache[id] = image;
+        var key = thumbnail ? id + "\n#thumb" : id;
+        if (_cache.TryGetValue(key, out var cached)) return cached;
+        var image = Load(id, sizePx, thumbnail);
+        _cache[key] = image;
         return image;
     }
 
-    private static ImageSource? Load(string id, int sizePx)
+    private static ImageSource? Load(string id, int sizePx, bool thumbnail)
     {
         var hbitmap = IntPtr.Zero;
         try
@@ -26,7 +28,9 @@ internal sealed class IconLoader
             if (SHCreateItemFromParsingName(id, IntPtr.Zero, ref iid, out var factory) < 0)
                 return null;
             var size = new SIZE { cx = sizePx, cy = sizePx };
-            if (factory.GetImage(size, SIIGBF_ICONONLY | SIIGBF_BIGGERSIZEOK, out hbitmap) < 0)
+            // Without ICONONLY the shell returns a thumbnail when it has one and the icon otherwise.
+            var flags = thumbnail ? SIIGBF_BIGGERSIZEOK : SIIGBF_ICONONLY | SIIGBF_BIGGERSIZEOK;
+            if (factory.GetImage(size, flags, out hbitmap) < 0)
                 return null;
             return FromHBitmap(hbitmap);
         }

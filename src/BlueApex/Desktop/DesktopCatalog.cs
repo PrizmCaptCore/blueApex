@@ -109,8 +109,34 @@ internal static class DesktopCatalog
         return key?.GetValue("Hidden") is int value && value == 1;
     }
 
+    /// <summary>The visible entries of any folder (for portal zones), newest first, capped so a huge folder stays usable.</summary>
+    public static List<DesktopIcon> EnumerateFolder(string folder, int limit = 300)
+    {
+        var icons = new List<DesktopIcon>();
+        if (!Directory.Exists(folder)) return icons;
+        var entries = new DirectoryInfo(folder).EnumerateFileSystemInfos()
+            .Where(e => !e.Attributes.HasFlag(FileAttributes.Hidden) && !e.Attributes.HasFlag(FileAttributes.System))
+            .OrderByDescending(e => e is DirectoryInfo) // folders first
+            .ThenByDescending(e => e.LastWriteTimeUtc)
+            .Take(limit);
+        foreach (var entry in entries)
+            icons.Add(new DesktopIcon(entry.FullName, DisplayName(entry.FullName), 0, 0, false));
+        return icons;
+    }
+
+    /// <summary>Creates a folder on the user's desktop, adding " (2)", " (3)"... if the name is taken. Returns its path.</summary>
+    public static string CreateDesktopFolder(string name)
+    {
+        foreach (var c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
+        var path = Path.Combine(UserDesktop, name);
+        for (var n = 2; Directory.Exists(path) || File.Exists(path); n++)
+            path = Path.Combine(UserDesktop, $"{name} ({n})");
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
     // The name explorer shows: no ".lnk"/".url", and extensions per the user's setting.
-    private static string DisplayName(string path)
+    public static string DisplayName(string path)
     {
         var info = new SHFILEINFO();
         return SHGetFileInfo(path, 0, ref info, (uint)Marshal.SizeOf<SHFILEINFO>(), SHGFI_DISPLAYNAME) != IntPtr.Zero && info.szDisplayName.Length > 0

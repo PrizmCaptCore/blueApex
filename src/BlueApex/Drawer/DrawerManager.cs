@@ -64,7 +64,15 @@ internal sealed class DrawerManager : IDisposable
     /// <summary>Public-desktop files we could not hide for lack of rights. Empty once access is granted.</summary>
     public IReadOnlyCollection<string> CannotHide => _cannotHide;
 
-    public IEnumerable<DesktopIcon> IconsOf(Zone zone) =>
+    /// <summary>A zone's tiles: its member desktop icons, or for a portal the folder's live contents.</summary>
+    public IEnumerable<DesktopIcon> IconsOf(Zone zone) => zone.IsPortal
+        ? DesktopCatalog.EnumerateFolder(zone.PortalPath!)
+        : MembersOf(zone);
+
+    /// <summary>Whether an id is a desktop item this app manages (as opposed to a file shown through a portal).</summary>
+    public bool IsDesktopItem(string id) => _current.ContainsKey(id);
+
+    private IEnumerable<DesktopIcon> MembersOf(Zone zone) =>
         zone.Members.Select(id => _current.GetValueOrDefault(id)).OfType<DesktopIcon>();
 
     /// <summary>Pinned, or a shell item (which cannot be hidden), or a file we lack the rights to hide.</summary>
@@ -205,7 +213,7 @@ internal sealed class DrawerManager : IDisposable
     // Makes sure a default zone exists and that every icon belongs to some zone.
     private void EnsureDefaultZone()
     {
-        if (_file.DefaultZoneId == null || _file.Zones.All(z => z.Id != _file.DefaultZoneId))
+        if (_file.DefaultZoneId == null || _file.Zones.All(z => z.Id != _file.DefaultZoneId && !z.IsPortal))
         {
             var zone = new Zone { Title = "기본" };
             _file.Zones.Insert(0, zone);
@@ -216,8 +224,8 @@ internal sealed class DrawerManager : IDisposable
             DefaultZone.Members.Add(icon.Id);
     }
 
-    /// <summary>Zones other than the default: the ones whose rules can claim an icon.</summary>
-    private IEnumerable<Zone> RuleZones => _file.Zones.Where(z => !IsDefault(z));
+    /// <summary>Zones other than the default and portals: the ones whose rules can claim an icon.</summary>
+    private IEnumerable<Zone> RuleZones => _file.Zones.Where(z => !IsDefault(z) && !z.IsPortal);
 
     public Zone AddZone(string title)
     {
@@ -226,6 +234,44 @@ internal sealed class DrawerManager : IDisposable
         Save();
         Changed?.Invoke();
         return zone;
+    }
+
+    /// <summary>Adds a portal zone showing the given folder; titled after the folder.</summary>
+    public Zone AddPortal(string folder)
+    {
+        var zone = new Zone { Title = DesktopCatalog.DisplayName(folder), PortalPath = folder };
+        _file.Zones.Add(zone);
+        Save();
+        Changed?.Invoke();
+        return zone;
+    }
+
+    /// <summary>Points a portal zone at another folder, or (null) turns it back into a normal, empty zone.</summary>
+    public void SetPortal(Zone zone, string? folder)
+    {
+        if (IsDefault(zone)) return;
+        zone.PortalPath = folder;
+        if (folder != null)
+        {
+            DefaultZone.Members.AddRange(zone.Members); // a portal holds no members of its own
+            zone.Members.Clear();
+        }
+        Save();
+        Changed?.Invoke();
+    }
+
+    /// <summary>Creates a folder on the desktop and files it straight into the zone (hidden, like any drawer item).</summary>
+    public DesktopIcon CreateFolder(Zone zone, string name)
+    {
+        var path = DesktopCatalog.CreateDesktopFolder(name);
+        Refresh(); // so the poll sees it as already known rather than new
+        var target = zone.IsPortal ? DefaultZone : zone;
+        target.Members.Add(path);
+        Hide(path);
+        Save();
+        Changed?.Invoke();
+        Log.Write($"created folder {path} in {target.Title}");
+        return _current[path];
     }
 
     public void RenameZone(Zone zone, string title)
