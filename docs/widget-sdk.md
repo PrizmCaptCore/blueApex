@@ -18,7 +18,13 @@
 4. `IWidgetContext`로 할 수 있는 것: `Settings`(인스턴스별 문자열, 대입하면 저장), `Dispatcher`(UI 스레드),
    `AskText`(입력 대화상자), `Log`.
 
-예제: `samples/WeatherWidget` (Open-Meteo, 키 불필요).
+예제: `samples/WeatherWidget`(Open-Meteo, 키 불필요), `samples/MediaWidget`(지금 재생 중: WinRT API 사용 예).
+
+본체에 없는 API(WinRT 등)를 쓰려면 플러그인이 그 의존 DLL을 **자기 폴더에 같이** 두면 된다. 본체는 플러그인의 의존성을
+플러그인 폴더에서 찾는다. `MediaWidget.csproj`가 `Microsoft.Windows.SDK.NET.dll`/`WinRT.Runtime.dll`을 복사하는 방식을 참고.
+
+네트워크·타이머 결과를 UI에 반영할 때는 반드시 `IWidgetContext.Dispatcher`를 거친다(위젯 생성 시점의 UI 스레드 디스패처).
+WPF 개체(이미지 포함)는 그 디스패처 안에서 만든다.
 
 ## 설치
 

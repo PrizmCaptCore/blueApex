@@ -1,0 +1,12 @@
+E:\windows_project\desktop_folder_cleaner\samples\MediaWidget\obj\Debug\net9.0-windows10.0.19041.0\MediaWidget.csproj.AssemblyReference.cache
+E:\windows_project\desktop_folder_cleaner\samples\MediaWidget\obj\Debug\net9.0-windows10.0.19041.0\MediaWidget.GeneratedMSBuildEditorConfig.editorconfig
+E:\windows_project\desktop_folder_cleaner\samples\MediaWidget\obj\Debug\net9.0-windows10.0.19041.0\MediaWidget.AssemblyInfoInputs.cache
+E:\windows_project\desktop_folder_cleaner\samples\MediaWidget\obj\Debug\net9.0-windows10.0.19041.0\MediaWidget.AssemblyInfo.cs
+E:\windows_project\desktop_folder_cleaner\samples\MediaWidget\obj\Debug\net9.0-windows10.0.19041.0\MediaWidget.csproj.CoreCompileInputs.cache
+E:\windows_project\desktop_folder_cleaner\samples\MediaWidget\bin\Debug\net9.0-windows10.0.19041.0\MediaWidget.deps.json
+E:\windows_project\desktop_folder_cleaner\samples\MediaWidget\bin\Debug\net9.0-windows10.0.19041.0\MediaWidget.dll
+E:\windows_project\desktop_folder_cleaner\samples\MediaWidget\bin\Debug\net9.0-windows10.0.19041.0\MediaWidget.pdb
+E:\windows_project\desktop_folder_cleaner\samples\MediaWidget\obj\Debug\net9.0-windows10.0.19041.0\MediaWidget.dll
+E:\windows_project\desktop_folder_cleaner\samples\MediaWidget\obj\Debug\net9.0-windows10.0.19041.0\refint\MediaWidget.dll
+E:\windows_project\desktop_folder_cleaner\samples\MediaWidget\obj\Debug\net9.0-windows10.0.19041.0\MediaWidget.pdb
+E:\windows_project\desktop_folder_cleaner\samples\MediaWidget\obj\Debug\net9.0-windows10.0.19041.0\ref\MediaWidget.dll

@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("BlueApex")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+90ea95436f3db1a87e8891cf2b095ee47897946e")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+cecd39f1574bd531998e0aac208c9b2ca2ebd855")]
 [assembly: System.Reflection.AssemblyProductAttribute("BlueApex")]
 [assembly: System.Reflection.AssemblyTitleAttribute("BlueApex")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

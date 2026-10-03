@@ -151,6 +151,9 @@ internal sealed class WidgetItem : IDesktopLayerItem, IDisposable
         {
             _spec = spec;
             _host = host;
+            // Captured here, on the UI thread. Dispatcher.CurrentDispatcher evaluated later
+            // from a worker thread would hand the plugin a dispatcher for that thread instead.
+            Dispatcher = Dispatcher.CurrentDispatcher;
         }
 
         public string Settings
@@ -163,7 +166,7 @@ internal sealed class WidgetItem : IDesktopLayerItem, IDisposable
             }
         }
 
-        public Dispatcher Dispatcher => Dispatcher.CurrentDispatcher;
+        public Dispatcher Dispatcher { get; }
 
         public string? AskText(string title, string current, string? hint = null, bool multiline = false) =>
             ZoneMenu.AskText(title, current, hint, multiline);
