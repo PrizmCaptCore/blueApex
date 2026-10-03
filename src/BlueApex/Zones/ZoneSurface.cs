@@ -37,7 +37,7 @@ internal sealed class ZoneSurface : IDisposable
     public ZoneSurface(DesktopHost desktop, Zone zone, ZoneStyle style)
     {
         _desktop = desktop;
-        var origin = desktop.IconToHost(zone.X, zone.Y);
+        var origin = desktop.IconToHost(zone.X, ShownTop(zone));
         var height = ShownHeight(zone);
         _frame.CreateHandle(new System.Windows.Forms.CreateParams
         {
@@ -65,7 +65,7 @@ internal sealed class ZoneSurface : IDisposable
         // Software rendering is the path verified to show up inside the layered
         // frame; the content is static, so it costs nothing.
         _content.CompositionTarget.RenderMode = RenderMode.SoftwareOnly;
-        _view = new ZoneView { Title = zone.Title };
+        _view = new ZoneView { Title = zone.Title, HeaderAtBottom = zone.HeaderAtBottom };
         _content.RootVisual = _view;
         ApplyStyle(style);
 
@@ -97,9 +97,10 @@ internal sealed class ZoneSurface : IDisposable
     /// <summary>Applies the zone position and size; a rolled-up zone shows only its title bar.</summary>
     public void SetBounds(Zone zone)
     {
-        var origin = _desktop.IconToHost(zone.X, zone.Y);
+        var origin = _desktop.IconToHost(zone.X, ShownTop(zone));
         var height = ShownHeight(zone);
         _size = (zone.Width, height);
+        _view.HeaderAtBottom = zone.HeaderAtBottom;
         NativeMethods.SetWindowPos(_frame.Handle, IntPtr.Zero, origin.X, origin.Y, zone.Width, height,
             NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
         ApplyShape(zone.Width, height);
@@ -107,8 +108,12 @@ internal sealed class ZoneSurface : IDisposable
             NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
     }
 
-    private int ShownHeight(Zone zone) =>
-        zone.Rolled ? (int)Math.Round(HeaderHeightDip * _desktop.Dpi / 96.0) : zone.Height;
+    private int HeaderPixels => (int)Math.Round(HeaderHeightDip * _desktop.Dpi / 96.0);
+
+    private int ShownHeight(Zone zone) => zone.Rolled ? HeaderPixels : zone.Height;
+
+    // A rolled zone shows only its title bar, which sits at the box bottom when HeaderAtBottom.
+    private int ShownTop(Zone zone) => zone.Rolled && zone.HeaderAtBottom ? zone.Y + zone.Height - HeaderPixels : zone.Y;
 
     // Rounded corners have to come from a window region, since alpha is per-window.
     // The system owns the region after SetWindowRgn, so it is not deleted here.

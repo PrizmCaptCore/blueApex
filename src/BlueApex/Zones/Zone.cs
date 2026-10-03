@@ -17,6 +17,13 @@ internal sealed class Zone
     /// <summary>Rolled up: only the title bar shows and the members are parked off-screen. Width/Height keep the full size.</summary>
     public bool Rolled { get; set; }
 
+    /// <summary>
+    /// Title bar at the bottom edge instead of the top: the body opens upward from it.
+    /// Set when a rolled zone sitting near the bottom of the screen is unrolled.
+    /// X/Y stay the top-left of the full box either way.
+    /// </summary>
+    public bool HeaderAtBottom { get; set; }
+
     /// <summary>This zone's own look; null means the layout's default style.</summary>
     public ZoneStyle? Style { get; set; }
 

@@ -16,6 +16,12 @@ public partial class ZoneView : UserControl
         set => TitleText.Text = value;
     }
 
+    public bool HeaderAtBottom
+    {
+        get => DockPanel.GetDock(Header) == Dock.Bottom;
+        set => DockPanel.SetDock(Header, value ? Dock.Bottom : Dock.Top);
+    }
+
     internal void Apply(ZoneStyle style)
     {
         Body.Background = Brush(style.Background, ZoneStyle.BuiltIn.Background!);

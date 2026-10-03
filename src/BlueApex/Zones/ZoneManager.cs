@@ -217,6 +217,20 @@ internal sealed class ZoneManager : IDisposable
     public void ToggleRolled(Zone zone)
     {
         zone.Rolled = !zone.Rolled;
+        if (!zone.Rolled)
+        {
+            // The title bar stays where the user left it; the body opens on whichever side
+            // has room, keeping the current side when both do. If neither side fits, the box
+            // hugs the top edge and overflows at the bottom.
+            var (areaWidth, areaHeight) = _desktop.IconAreaSize;
+            var headerTop = _layout.HeaderTop(zone);
+            var fitsBelow = headerTop + zone.Height <= areaHeight;
+            var fitsAbove = headerTop + HeaderHeight - zone.Height >= 0;
+            zone.HeaderAtBottom = zone.HeaderAtBottom ? !(!fitsAbove && fitsBelow) : !fitsBelow && fitsAbove;
+            zone.Y = zone.HeaderAtBottom ? headerTop + HeaderHeight - zone.Height : headerTop;
+            zone.X = Math.Clamp(zone.X, 0, Math.Max(0, areaWidth - zone.Width));
+            zone.Y = Math.Clamp(zone.Y, 0, Math.Max(0, areaHeight - zone.Height));
+        }
         _surfaces[zone.Id].SetBounds(zone);
         ArrangeIcons();
         Save();

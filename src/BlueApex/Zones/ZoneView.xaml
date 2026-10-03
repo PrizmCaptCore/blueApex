@@ -3,17 +3,19 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <!-- Colors are opaque: translucency and rounded corners are applied to the
          whole window by ZoneSurface. Header height and grip size must match
-         ZoneSurface.HeaderHeightDip / GripSizeDip. Colors come from ZoneStyle. -->
-    <DockPanel x:Name="Body" Background="#202020">
-        <Border x:Name="Header" DockPanel.Dock="Top" Height="30" Background="#101010" Padding="12,0">
-            <TextBlock x:Name="TitleText" Foreground="White" FontSize="13" FontWeight="SemiBold"
-                       HorizontalAlignment="Center" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-        </Border>
-        <Grid>
-            <!-- Resize grip: three diagonal lines in a 20x20 square at the bottom-right corner. -->
-            <Path x:Name="Grip" HorizontalAlignment="Right" VerticalAlignment="Bottom" Width="20" Height="20"
-                  Stroke="#80FFFFFF" StrokeThickness="1.5"
-                  Data="M 17,5 L 5,17 M 17,10 L 10,17 M 17,15 L 15,17" />
-        </Grid>
-    </DockPanel>
+         ZoneSurface.HeaderHeightDip / GripSizeDip. Colors come from ZoneStyle.
+         The header docks to the top, or to the bottom for a zone that opens upward. -->
+    <Grid>
+        <DockPanel x:Name="Body" Background="#202020">
+            <Border x:Name="Header" DockPanel.Dock="Top" Height="30" Background="#101010" Padding="12,0">
+                <TextBlock x:Name="TitleText" Foreground="White" FontSize="13" FontWeight="SemiBold"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+            </Border>
+            <Grid />
+        </DockPanel>
+        <!-- Resize grip: three diagonal lines in a 20x20 square at the window's bottom-right corner. -->
+        <Path x:Name="Grip" HorizontalAlignment="Right" VerticalAlignment="Bottom" Width="20" Height="20"
+              Stroke="#80FFFFFF" StrokeThickness="1.5"
+              Data="M 17,5 L 5,17 M 17,10 L 10,17 M 17,15 L 15,17" />
+    </Grid>
 </UserControl>

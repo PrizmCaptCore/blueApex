@@ -227,7 +227,7 @@ internal sealed class ZoneMouseInteraction : IDisposable
         var grip = _zones.GripSize;
         if (!zone.Rolled && p.X >= zone.X + zone.Width - grip && p.Y >= zone.Y + zone.Height - grip)
             return Hit.Grip;
-        return p.Y < zone.Y + _zones.HeaderHeight ? Hit.Title : Hit.None;
+        return _zones.Layout.InHeader(zone, p.X, p.Y) ? Hit.Title : Hit.None;
     }
 
     /// <summary>Whether the desktop (icons shown or hidden) is what is under the screen point.</summary>
@@ -281,7 +281,10 @@ internal sealed class ZoneMouseInteraction : IDisposable
         if (_hit == Hit.Title)
         {
             x = Math.Clamp(x + dx, 0, areaWidth - width);
-            y = Math.Clamp(y + dy, 0, areaHeight - height);
+            // What is on screen (just the title bar when rolled up, which may sit below the
+            // box top) has to stay on screen; the box top follows from that.
+            var shownOffset = _zones.Layout.ShownTop(zone) - zone.Y;
+            y = Math.Clamp(y + dy, -shownOffset, areaHeight - _zones.Layout.ShownHeight(zone) - shownOffset);
         }
         else
         {
