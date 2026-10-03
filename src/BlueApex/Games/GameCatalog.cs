@@ -19,8 +19,8 @@ internal sealed record GameInfo(string Id, string Name, string Source, bool Inst
 /// <summary>
 /// Games from the launchers installed on this PC: Steam, Epic Games, GOG. Everything
 /// is read from what the launchers keep locally, so no password ever passes through
-/// this app; the one exception is Steam's optional Web API key for games the
-/// account owns but has not installed (see <see cref="SteamLibrary"/>).
+/// this app. Steam games the account owns but has not installed come through a sign-in
+/// in an embedded browser (see <see cref="SteamSession"/>), Playnite-style.
 ///
 /// Ids look like <c>game:steam:108600</c>, <c>game:epic:Boga</c>, <c>game:gog:1207658924</c>
 /// and are stable across rescans, so zones can hold them like app ids.
@@ -59,10 +59,11 @@ internal static class GameCatalog
     /// Reads every launcher. Slow-ish (file parsing, a few hundred JSON entries), so call it
     /// off the UI thread. Never throws: a launcher that cannot be read is logged and skipped.
     /// </summary>
-    public static List<GameInfo> Scan(string? steamApiKey)
+    /// <param name="steamOwned">Include Steam games the signed-in account owns but has not installed.</param>
+    public static List<GameInfo> Scan(bool steamOwned)
     {
         var games = new List<GameInfo>();
-        Collect(games, "Steam", () => SteamLibrary.Scan(steamApiKey));
+        Collect(games, "Steam", () => SteamLibrary.Scan(steamOwned));
         Collect(games, "Epic", EpicLibrary.Scan);
         Collect(games, "GOG", GogLibrary.Scan);
         // The same game can be seen twice (installed + owned list); the installed one wins.

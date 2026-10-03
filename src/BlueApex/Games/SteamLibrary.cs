@@ -7,9 +7,8 @@ namespace BlueApex.Games;
 
 /// <summary>
 /// Steam. Installed games come from the library folders' appmanifest files; games
-/// the account owns but has not installed come from the Steam Web API, which needs
-/// the user's own API key (steamcommunity.com/dev/apikey) and a profile whose game
-/// list is public. The SteamID is read from the registry (the logged-in account).
+/// the account owns but has not installed come from the Steam Web API, called with
+/// the access token a signed-in browser session provides (<see cref="SteamSession"/>).
 /// Artwork is taken from Steam's own cache next to the client.
 /// </summary>
 internal static class SteamLibrary
@@ -56,7 +55,7 @@ internal static class SteamLibrary
     public static string LaunchUri(GameInfo game) =>
         game.Installed ? $"steam://rungameid/{AppId(game)}" : $"steam://install/{AppId(game)}";
 
-    public static IEnumerable<GameInfo> Scan(string? apiKey)
+    public static IEnumerable<GameInfo> Scan(bool includeOwned)
     {
         var steam = InstallPath;
         if (steam == null) yield break;
@@ -77,8 +76,8 @@ internal static class SteamLibrary
             }
         }
 
-        // Owned-but-not-installed, from the last Web API fetch (refreshed by LinkAsync / rescan).
-        if (apiKey == null || !File.Exists(OwnedCache)) yield break;
+        // Owned-but-not-installed, from the last Web API fetch (refreshed at sign-in and daily).
+        if (!includeOwned || !File.Exists(OwnedCache)) yield break;
         using var doc = GameCatalog.ReadJson(OwnedCache);
         if (doc == null) yield break;
         foreach (var game in doc.RootElement.EnumerateArray())
@@ -95,21 +94,21 @@ internal static class SteamLibrary
     }
 
     /// <summary>
-    /// Fetches the account's owned games with the Web API and caches them for <see cref="Scan"/>.
+    /// Fetches the signed-in account's owned games with the Web API and caches them for <see cref="Scan"/>.
     /// Returns the number of games, or throws with a message fit for the user.
     /// </summary>
-    public static async Task<int> FetchOwnedAsync(string apiKey, long steamId)
+    public static async Task<int> FetchOwnedAsync(SteamSession.Credentials session)
     {
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
-        var url = $"https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key={Uri.EscapeDataString(apiKey)}&steamid={steamId}&include_appinfo=1&include_played_free_games=1&format=json";
+        var url = $"https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?access_token={Uri.EscapeDataString(session.Token)}&steamid={session.SteamId}&include_appinfo=1&include_played_free_games=1&format=json";
         using var response = await http.GetAsync(url);
         if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
-            throw new InvalidOperationException("Steam이 API 키를 거부했습니다. 키를 다시 확인해 주세요.");
+            throw new InvalidOperationException("Steam이 로그인 세션을 받아들이지 않았습니다. 다시 로그인해 주세요.");
         response.EnsureSuccessStatusCode();
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var body = doc.RootElement.GetProperty("response");
         if (!body.TryGetProperty("games", out var games))
-            throw new InvalidOperationException("게임 목록이 비어 있습니다. Steam 프로필의 '게임 세부 정보'가 공개로 되어 있어야 합니다.");
+            throw new InvalidOperationException("게임 목록이 비어 있습니다. Steam 프로필 > 개인정보 설정의 '게임 세부 정보'가 비공개면 본인 계정이라도 목록을 주지 않습니다.");
 
         // Keep only what Scan needs: appid, name, icon hash.
         var slim = games.EnumerateArray().Select(g => new

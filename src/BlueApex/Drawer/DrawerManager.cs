@@ -360,59 +360,78 @@ internal sealed class DrawerManager : IDisposable
         set { _file.ShowUninstalledGames = value; Save(); Changed?.Invoke(); }
     }
 
-    public bool SteamLinked => _file.SteamApiKey != null;
+    public bool SteamLinked => _file.SteamLinked;
 
     /// <summary>
-    /// Stores the Steam Web API key after a successful fetch of the owned-games list.
-    /// Throws with a user-readable message when Steam rejects the key or the profile is private.
+    /// Shows the Steam sign-in window, then fetches the owned-games list with the session.
+    /// Returns the number of games; null if the user closed the window without signing in.
+    /// Throws with a user-readable message when Steam refuses (private game details...).
     /// </summary>
-    public async Task<int> LinkSteamAsync(string apiKey, long steamId)
+    public async Task<int?> LinkSteamAsync()
     {
-        var count = await SteamLibrary.FetchOwnedAsync(apiKey, steamId);
-        _file.SteamApiKey = apiKey;
+        var session = await SteamSession.GetAsync(interactive: true);
+        if (session == null) return null;
+        var count = await SteamLibrary.FetchOwnedAsync(session);
+        _file.SteamLinked = true;
         Save();
         RescanGames();
         return count;
     }
 
+    /// <summary>Forgets the owned list and signs the embedded browser out of everything.</summary>
     public void UnlinkSteam()
     {
-        _file.SteamApiKey = null;
+        _file.SteamLinked = false;
         SteamLibrary.ForgetOwned();
         Save();
         RescanGames();
+        _ = BrowserSession.ClearAsync();
     }
 
-    /// <summary>Reads the launchers again (and, once a day, the Steam owned list) off the UI thread.</summary>
-    public void RescanGames()
+    /// <summary>Reads the launchers again (and, once a day, the Steam owned list) without blocking the UI.</summary>
+    public void RescanGames() => _ = RescanGamesAsync();
+
+    private async Task RescanGamesAsync()
     {
+        if (_gamesScanning) return;
         _gamesScanning = true;
-        var dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
-        var apiKey = _file.SteamApiKey;
-        _ = Task.Run(async () =>
+        try
         {
-            if (apiKey != null && SteamLibrary.SteamId64 is { } steamId && SteamLibrary.OwnedCacheAge > TimeSpan.FromHours(24))
+            if (_file.SteamLinked && SteamLibrary.OwnedCacheAge > TimeSpan.FromHours(24))
+                await RefreshSteamOwnedAsync();
+            var linked = _file.SteamLinked;
+            var games = await Task.Run(() => GameCatalog.Scan(linked).Select(g => new DesktopIcon(g.Id, g.Name, 0, 0, false)).ToList());
+            var changed = games.Count != _games.Count;
+            _games = AppCatalog.Sort(games, AppSortLatinFirst);
+            _gamesById = games.ToDictionary(g => g.Id);
+            _gamesScanned = DateTime.UtcNow;
+            if (changed) Changed?.Invoke();
+        }
+        finally
+        {
+            _gamesScanning = false;
+        }
+    }
+
+    // The saved browser session gives a fresh token silently; when Steam wants a new sign-in, say so once.
+    private async Task RefreshSteamOwnedAsync()
+    {
+        try
+        {
+            var session = await SteamSession.GetAsync(interactive: false);
+            if (session == null)
             {
-                try
-                {
-                    await SteamLibrary.FetchOwnedAsync(apiKey, steamId);
-                }
-                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException or System.Text.Json.JsonException)
-                {
-                    Log.Write($"steam owned-games refresh failed: {ex.Message}");
-                }
+                Notice?.Invoke("Steam", "Steam 로그인이 만료되었습니다. 서랍의 게임 카드에서 다시 로그인하면 보유 게임이 갱신됩니다.");
+                return;
             }
-            var games = GameCatalog.Scan(apiKey).Select(g => new DesktopIcon(g.Id, g.Name, 0, 0, false)).ToList();
-            await dispatcher.BeginInvoke(() =>
-            {
-                var changed = games.Count != _games.Count;
-                _games = AppCatalog.Sort(games, AppSortLatinFirst);
-                _gamesById = games.ToDictionary(g => g.Id);
-                _gamesScanned = DateTime.UtcNow;
-                _gamesScanning = false;
-                if (changed) Changed?.Invoke();
-            });
-        });
+            await SteamLibrary.FetchOwnedAsync(session);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException
+                                   or System.Text.Json.JsonException or Microsoft.Web.WebView2.Core.WebView2RuntimeNotFoundException
+                                   or System.Runtime.InteropServices.COMException)
+        {
+            Log.Write($"steam owned-games refresh failed: {ex.Message}");
+        }
     }
 
     /// <summary>Rows of a portal folder shown per page in the drawer (1..50).</summary>

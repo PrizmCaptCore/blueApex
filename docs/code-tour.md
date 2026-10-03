@@ -31,7 +31,9 @@ src/BlueApex/
 
   Games/                 런처(Steam·Epic·GOG)의 게임 목록. 비밀번호는 다루지 않는다.
     GameCatalog.cs       세 런처를 합쳐 읽고, id("game:steam:108600")로 찾고, 실행/설치 URL을 만든다.
-    SteamLibrary.cs      설치 게임은 appmanifest(.acf), 보유 게임은 Web API(사용자 키), 그림은 Steam의 캐시 폴더.
+    SteamLibrary.cs      설치 게임은 appmanifest(.acf), 보유 게임은 Web API(로그인 세션의 토큰), 그림은 Steam의 캐시 폴더.
+    SteamSession.cs      로그인 창 → 쿠키에서 SteamID, 스토어에서 webapi_token. 하루 뒤엔 창 없이 다시 받는다.
+    BrowserSession.cs    ★ 내장 브라우저(WebView2, 유일한 NuGet 의존성). 계정 연동의 공통 부품: 창 띄우기, 쿠키 읽기, 페이지 글 가져오기.
     EpicLibrary.cs       설치 게임은 Manifests\*.item, 보유 게임은 런처의 catcache.bin(base64 JSON).
     GogLibrary.cs        레지스트리 GOG.com\Games (설치된 것만).
     Vdf.cs               Valve 텍스트 KeyValues(.vdf/.acf) 파서.
@@ -159,6 +161,7 @@ OnExit
 | 저장 형식(새 필드) | `Zones/LayoutStore.cs`의 `LayoutFile` (필드만 추가하면 JSON에 자동 반영) |
 | 내장 위젯 추가 | `Widgets/BuiltInWidgets.cs` + `WidgetRegistry` 생성자에 `Register` 한 줄 |
 | 런처 추가(예: Ubisoft) | `Games/`에 `XxxLibrary.Scan()` 하나 만들고 `GameCatalog.Scan`·`Launch`·`SourceLabel`에 한 줄씩 |
+| 새 서비스 계정 연동 | `SteamSession.cs`를 본떠 `XxxSession.cs`: `BrowserSession.OpenAsync` → 로그인 URL → 쿠키/토큰 확인 |
 | 게임 카드 메뉴·배치 | `DrawerWindow.cs` (`BuildGamesCard`, `LinkSteam`) |
 | 바탕화면 버튼 모양 | `Drawer/DesktopButton.cs` (`BuildFace`) |
 | 색·글자 크기·모서리 값 | `Ui/Theme.cs` (토큰 하나 = 그 값을 쓰는 모든 곳) |

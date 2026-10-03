@@ -51,8 +51,8 @@ internal sealed class LayoutFile
     /// <summary>Also list games the account owns but has not installed (dimmed; click opens the install page).</summary>
     public bool ShowUninstalledGames { get; set; } = true;
 
-    /// <summary>The user's Steam Web API key, for the owned-games list. Null = not linked.</summary>
-    public string? SteamApiKey { get; set; }
+    /// <summary>Whether the user signed in to Steam (in the embedded browser) to list the games they own.</summary>
+    public bool SteamLinked { get; set; }
 
     /// <summary>Widgets on the home screen.</summary>
     public List<Widgets.WidgetSpec> Widgets { get; set; } = new();

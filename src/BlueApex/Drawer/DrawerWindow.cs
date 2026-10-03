@@ -432,19 +432,29 @@ internal sealed class DrawerWindow : Window
     private readonly HashSet<string> _openSections = new();
     private readonly List<(string Query, Action<string> BuildMatching, Action<bool> SetExpanded)> _sections = new();
 
-    private void BuildSections(StackPanel body, List<DesktopIcon> icons, string mode, string cardKey)
+    /// <param name="innerMode">When set, each group holds another level of groups (e.g. launcher → first letter) instead of tiles.</param>
+    private void BuildSections(StackPanel body, List<DesktopIcon> icons, string mode, string cardKey, string? innerMode = null, double indent = 0)
     {
         foreach (var group in GroupIcons(icons, mode))
         {
             var key = cardKey + "/" + group.Label;
             var open = _openSections.Contains(key);
             var (headerBar, arrow) = Parts.GroupHeader($"{group.Label}  ({group.Items.Count})", open);
-            var panel = new WrapPanel { Visibility = open ? Visibility.Visible : Visibility.Collapsed };
-            var content = new StackPanel { Children = { panel } };
+            headerBar.Margin = new Thickness(headerBar.Margin.Left + indent, headerBar.Margin.Top, headerBar.Margin.Right, headerBar.Margin.Bottom);
+            var panel = new WrapPanel();
+            var content = new StackPanel { Children = { panel }, Visibility = open ? Visibility.Visible : Visibility.Collapsed };
             LazyTiles? lazy = null;
+            var built = false;
             void Ensure()
             {
-                if (lazy != null) return;
+                if (built) return;
+                built = true;
+                if (innerMode != null)
+                {
+                    // Nested groups are built on first open, like tiles; they register themselves for search.
+                    BuildSections(content, group.Items, innerMode, key, indent: indent + Theme.Space3);
+                    return;
+                }
                 lazy = new LazyTiles(this, content, panel, group.Items, _drawer.PortalRows * TilesPerRow);
                 _lazy.Add(lazy);
                 lazy.AddPage();
@@ -452,20 +462,20 @@ internal sealed class DrawerWindow : Window
             void SetExpanded(bool expanded)
             {
                 if (expanded) Ensure();
-                panel.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
+                content.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
                 arrow.Text = expanded ? "▾" : "▸";
             }
             if (open) Ensure();
             headerBar.MouseLeftButtonUp += (_, _) =>
             {
-                var expanded = panel.Visibility != Visibility.Visible;
+                var expanded = content.Visibility != Visibility.Visible;
                 Log.Write($"section {key}: {(expanded ? "open" : "close")}");
                 if (expanded) _openSections.Add(key); else _openSections.Remove(key);
                 SetExpanded(expanded);
             };
             body.Children.Add(headerBar);
             body.Children.Add(content);
-            _sections.Add((cardKey, query => { Ensure(); lazy!.BuildMatching(query); }, SetExpanded));
+            _sections.Add((cardKey, query => { Ensure(); lazy?.BuildMatching(query); }, SetExpanded));
         }
     }
 
@@ -609,9 +619,9 @@ internal sealed class DrawerWindow : Window
 
         var menu = new ContextMenu();
         if (_drawer.SteamLinked)
-            menu.Items.Add(MenuItem("Steam 연결 해제 (보유 게임 목록 지우기)", _drawer.UnlinkSteam));
+            menu.Items.Add(MenuItem("Steam 로그아웃 (보유 게임 목록 지우기)", _drawer.UnlinkSteam));
         else
-            menu.Items.Add(MenuItem("Steam 계정 연결 (보유한 게임 전부 불러오기)...", LinkSteam));
+            menu.Items.Add(MenuItem("Steam 로그인 (보유한 게임 전부 불러오기)...", LinkSteam));
         var epic = MenuItem(EpicLibrary.IsLauncherInstalled
             ? "Epic Games: 런처에 로그인돼 있으면 라이브러리를 자동으로 읽습니다"
             : "Epic Games: 런처가 설치돼 있지 않습니다", () => { });
@@ -625,10 +635,16 @@ internal sealed class DrawerWindow : Window
         menu.Items.Add(MenuItem("게임 카드 숨기기 (트레이 메뉴에서 다시 켤 수 있음)", () => _drawer.ShowGames = false));
         card.ContextMenu = menu;
 
-        if (_drawer.GameLayout is "source" or "letters")
+        if (_drawer.GameLayout == "source")
+        {
+            // Launcher → first letter: two levels of little drawers.
+            body.Children.Remove(tiles);
+            BuildSections(body, games.ToList(), "source", "games", innerMode: "name");
+        }
+        else if (_drawer.GameLayout == "letters")
         {
             body.Children.Remove(tiles);
-            BuildSections(body, games.ToList(), _drawer.GameLayout == "source" ? "source" : "name", "games");
+            BuildSections(body, games.ToList(), "name", "games");
         }
         else
         {
@@ -637,29 +653,25 @@ internal sealed class DrawerWindow : Window
         return card;
     }
 
-    // Asks for the Web API key (the SteamID comes from the logged-in client) and fetches the owned list.
+    // Opens Steam's sign-in page in an embedded browser window; the session then fetches the owned list.
     private async void LinkSteam()
     {
-        var key = ZoneMenu.AskText("Steam 계정 연결", "",
-            "Steam Web API 키를 붙여 넣으세요. https://steamcommunity.com/dev/apikey 에서 만들 수 있고\n" +
-            "(도메인 이름은 아무거나, 예: localhost), 키는 이 PC의 layout.json에만 저장됩니다.\n" +
-            "Steam 프로필 > 개인정보 설정에서 '게임 세부 정보'가 공개여야 목록을 받을 수 있습니다.", multiline: false)?.Trim();
-        if (string.IsNullOrEmpty(key)) return;
-        var steamId = SteamLibrary.SteamId64;
-        if (steamId == null)
-        {
-            var text = ZoneMenu.AskText("SteamID", "", "로그인된 Steam 클라이언트를 찾지 못했습니다. 64비트 SteamID(7656119...)를 입력하세요.", multiline: false);
-            if (!long.TryParse(text?.Trim(), out var parsed)) return;
-            steamId = parsed;
-        }
+        Hide(); // the drawer is topmost and would sit over the login window
         try
         {
-            var count = await _drawer.LinkSteamAsync(key, steamId.Value);
-            MessageBox.Show($"Steam 게임 {count}개를 불러왔습니다.", "BlueApex", MessageBoxButton.OK, MessageBoxImage.Information);
+            var count = await _drawer.LinkSteamAsync();
+            if (count != null)
+                MessageBox.Show($"Steam 게임 {count}개를 불러왔습니다.", "BlueApex", MessageBoxButton.OK, MessageBoxImage.Information);
         }
-        catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException or InvalidOperationException or System.Text.Json.JsonException)
+        catch (Microsoft.Web.WebView2.Core.WebView2RuntimeNotFoundException)
         {
-            MessageBox.Show("Steam 연결에 실패했습니다.\n" + ex.Message, "BlueApex", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show("로그인 창을 띄우려면 Microsoft Edge WebView2 런타임이 필요합니다.\nWindows 11에는 들어 있고, 없으면 Microsoft 사이트에서 'WebView2 Runtime'을 설치하면 됩니다.",
+                "BlueApex", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException or InvalidOperationException
+                                   or System.Text.Json.JsonException or System.Runtime.InteropServices.COMException)
+        {
+            MessageBox.Show("Steam 로그인에 실패했습니다.\n" + ex.Message, "BlueApex", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
@@ -1019,11 +1031,18 @@ internal sealed class DrawerWindow : Window
         var query = _search.Text.Trim();
         if (query.Length > 0)
         {
-            // Folded groups open up for a search so their matches can be seen.
-            foreach (var (_, buildMatching, setExpanded) in _sections)
+            // Folded groups open up for a search so their matches can be seen. Opening a group
+            // can register nested groups, so keep going until no new ones appear.
+            var seen = 0;
+            while (seen < _sections.Count)
             {
-                buildMatching(query);
-                setExpanded(true);
+                var batch = _sections.Skip(seen).ToList();
+                seen = _sections.Count;
+                foreach (var (_, buildMatching, setExpanded) in batch)
+                {
+                    buildMatching(query);
+                    setExpanded(true);
+                }
             }
             foreach (var lazy in _lazy) lazy.BuildMatching(query);
         }
