@@ -93,13 +93,24 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="MenuItem">
-                    <Border x:Name="Row" Background="Transparent" CornerRadius="5" Padding="{TemplateBinding Padding}">
-                        <DockPanel>
-                            <TextBlock x:Name="Arrow" DockPanel.Dock="Right" Text="▸" Margin="12,0,0,0"
-                                       Foreground="{x:Static ui:Theme.TextDim}" Visibility="Collapsed" />
-                            <ContentPresenter ContentSource="Header" VerticalAlignment="Center" />
-                        </DockPanel>
-                    </Border>
+                    <Grid>
+                        <Border x:Name="Row" Background="Transparent" CornerRadius="5" Padding="{TemplateBinding Padding}">
+                            <DockPanel>
+                                <TextBlock x:Name="Arrow" DockPanel.Dock="Right" Text="▸" Margin="12,0,0,0"
+                                           Foreground="{x:Static ui:Theme.TextDim}" Visibility="Collapsed" />
+                                <ContentPresenter ContentSource="Header" VerticalAlignment="Center" />
+                            </DockPanel>
+                        </Border>
+                        <!-- PART_Popup is what MenuItem opens for its submenu; without it a submenu can never show. -->
+                        <Popup x:Name="PART_Popup" Placement="Right" HorizontalOffset="4" VerticalOffset="-6"
+                               IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}"
+                               AllowsTransparency="True" Focusable="False" PopupAnimation="Fade">
+                            <Border Background="{x:Static ui:Theme.Panel}" BorderBrush="{x:Static ui:Theme.Border}"
+                                    BorderThickness="1" CornerRadius="8" Padding="4">
+                                <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle" />
+                            </Border>
+                        </Popup>
+                    </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsHighlighted" Value="True">
                             <Setter TargetName="Row" Property="Background" Value="{x:Static ui:Theme.Hover}" />
@@ -116,7 +127,16 @@
         </Setter>
     </Style>
 
-    <!-- Submenus keep WPF's popup mechanics; this only recolours the surface they open on. -->
+    <!-- Separators inside menus use the key WPF looks up for them; a plain template keeps them a faint hairline. -->
+    <Style x:Key="{x:Static MenuItem.SeparatorStyleKey}" TargetType="Separator">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Separator">
+                    <Border Height="1" Margin="6,4" Background="{x:Static ui:Theme.Border}" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
     <Style TargetType="{x:Type Separator}">
         <Setter Property="Background" Value="{x:Static ui:Theme.Border}" />
         <Setter Property="Height" Value="1" />

@@ -48,6 +48,7 @@ src/BlueApex/
     WidgetHost.cs        위젯 인스턴스 생성·이동·삭제. 플러그인에 주는 IWidgetContext 구현도 여기.
     WidgetRegistry.cs    내장 + 플러그인 DLL에서 위젯 종류 찾기.
     BuiltInWidgets.cs    시계·메모·"(없는 위젯)" 자리표시.
+    ZoneWidget.cs        구역/게임 격자 위젯. IInternalWidget(클릭 위치·자기 크기)은 내장 전용이라 SDK에 없다. 서랍은 DrawerManager.RequestWidget으로 요청만 한다.
     WidgetSpec.cs        저장 형식(종류, 위치, 크기, 설정 문자열).
 
   Zones/                 구역 데이터 + 옛 바탕화면 구역 방식

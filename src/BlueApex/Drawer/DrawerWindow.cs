@@ -398,6 +398,12 @@ internal sealed class DrawerWindow : Window
             parts.SetFolded(!zone.Rolled);
             _drawer.SetRolled(zone, !zone.Rolled);
         }));
+        menu.Items.Insert(1, MenuItem("바탕화면에 위젯으로 열기", () =>
+        {
+            _drawer.RequestWidget("zone", Widgets.ZoneWidgetProvider.SettingsFor(zone));
+            Hide();
+        }));
+        menu.Items.Insert(2, new Separator());
         card.ContextMenu = menu;
 
         if (!zone.IsPortal && zone.SortMode != "manual")
@@ -639,6 +645,14 @@ internal sealed class DrawerWindow : Window
         menu.Items.Add(epic);
         menu.Items.Add(MenuItem("라이브러리 다시 읽기", _drawer.RescanGames));
         menu.Items.Add(new Separator());
+        // A launcher's installed games as a panel on the home screen.
+        var asWidget = new MenuItem { Header = "바탕화면에 위젯으로 열기 (설치된 게임)" };
+        var sources = games.Where(g => _drawer.GameOf(g.Id)?.Installed == true).Select(g => GameCatalog.SourceOf(g.Id)).Distinct().ToList();
+        asWidget.Items.Add(MenuItem("모든 런처", () => OpenGamesWidget("")));
+        foreach (var source in sources)
+            asWidget.Items.Add(MenuItem(GameCatalog.SourceLabel(source), () => OpenGamesWidget(source)));
+        menu.Items.Add(asWidget);
+        menu.Items.Add(new Separator());
         var showAll = _drawer.ShowUninstalledGames;
         menu.Items.Add(MenuItem((showAll ? "● " : "○ ") + "미설치 게임도 보기 (흐리게; 클릭하면 설치 화면)", () => _drawer.ShowUninstalledGames = !showAll));
         menu.Items.Add(new Separator());
@@ -661,6 +675,12 @@ internal sealed class DrawerWindow : Window
             AddTiles(body, tiles, games, _drawer.PortalRows * TilesPerRow);
         }
         return card;
+    }
+
+    private void OpenGamesWidget(string source)
+    {
+        _drawer.RequestWidget("zone", Widgets.ZoneWidgetProvider.SettingsForGames(source));
+        Hide();
     }
 
     // Opens Steam's sign-in page in an embedded browser window; the session then fetches the owned list.

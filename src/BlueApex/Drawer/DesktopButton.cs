@@ -67,7 +67,7 @@ internal sealed class DesktopButton : IDesktopLayerItem, IDisposable
     }
 
     public void Moved() => _drawer.ButtonPosition = (_x, _y);
-    public void Click() => _open();
+    public void Click(int x, int y) => _open();
 
     public void RightClick(int screenX, int screenY) =>
         DesktopPopupMenu.Show(screenX, screenY,

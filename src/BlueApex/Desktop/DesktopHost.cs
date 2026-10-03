@@ -148,6 +148,7 @@ internal static class NativeMethods
     // Low-level mouse hook
     public const int WH_MOUSE_LL = 14;
     public const uint WM_MOUSEMOVE = 0x0200;
+    public const uint WM_MOUSEWHEEL = 0x020A;
     public const uint WM_LBUTTONDOWN = 0x0201;
     public const uint WM_LBUTTONUP = 0x0202;
     public const uint WM_RBUTTONDOWN = 0x0204;

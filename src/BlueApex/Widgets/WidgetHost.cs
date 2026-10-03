@@ -12,7 +12,7 @@ internal sealed class WidgetHost : IDisposable
     private readonly DesktopHost _desktop;
     private readonly DesktopLayerInput _input;
     private readonly DrawerManager _drawer;
-    private readonly WidgetRegistry _registry = new();
+    private readonly WidgetRegistry _registry;
     private readonly List<WidgetItem> _items = new();
 
     public WidgetHost(DesktopHost desktop, DesktopLayerInput input, DrawerManager drawer)
@@ -20,14 +20,17 @@ internal sealed class WidgetHost : IDisposable
         _desktop = desktop;
         _input = input;
         _drawer = drawer;
+        _registry = new WidgetRegistry(drawer);
         foreach (var spec in _drawer.Widgets.ToList())
             Create(spec);
+        // The drawer asks for a widget (e.g. "open this zone on the desktop") without knowing about us.
+        _drawer.WidgetRequested += (type, settings) => Add(_registry.Resolve(type), settings);
     }
 
-    /// <summary>Widget kinds the user can add, built-in and plugins alike.</summary>
-    public IReadOnlyCollection<IWidgetProvider> Kinds => _registry.Providers;
+    /// <summary>Widget kinds the user can add from the tray menu: built-in and plugins, minus those that need a card to come from.</summary>
+    public IEnumerable<IWidgetProvider> Kinds => _registry.Providers.Where(p => p is not ZoneWidgetProvider);
 
-    public void Add(IWidgetProvider provider)
+    public void Add(IWidgetProvider provider, string settings = "")
     {
         var scale = _desktop.Dpi / 96.0;
         var (areaWidth, areaHeight) = _desktop.IconAreaSize;
@@ -35,6 +38,7 @@ internal sealed class WidgetHost : IDisposable
         var spec = new WidgetSpec
         {
             Type = provider.Id,
+            Text = settings,
             Width = (int)Math.Round(provider.DefaultSizeDip.Width * scale),
             Height = (int)Math.Round(provider.DefaultSizeDip.Height * scale),
         };
@@ -82,11 +86,12 @@ internal sealed class WidgetHost : IDisposable
 }
 
 /// <summary>One widget on the desktop layer: its window, the plugin's widget and the mouse behaviour.</summary>
-internal sealed class WidgetItem : IDesktopLayerItem, IDisposable
+internal sealed class WidgetItem : IDesktopLayerItem, IDesktopLayerScrollable, IDisposable
 {
     private readonly WidgetHost _host;
     private readonly DesktopLayerWindow _window;
     private readonly IWidget _widget;
+    private readonly double _scale;
 
     public WidgetSpec Spec { get; }
 
@@ -94,9 +99,32 @@ internal sealed class WidgetItem : IDesktopLayerItem, IDisposable
     {
         Spec = spec;
         _host = host;
+        _scale = desktop.Dpi / 96.0;
         _widget = provider.Create(new Context(spec, host));
-        var corner = (int)Math.Round(WidgetStyle.CornerDip * desktop.Dpi / 96.0);
+        if (_widget is IInternalWidget sized)
+        {
+            // Built-in widgets size themselves to their content.
+            var size = ToPixels(sized.DesiredSizeDip);
+            if (size != (spec.Width, spec.Height))
+            {
+                (spec.Width, spec.Height) = size;
+                host.Save();
+            }
+            sized.Resized += () => Resize(ToPixels(sized.DesiredSizeDip));
+        }
+        var corner = (int)Math.Round(WidgetStyle.CornerDip * _scale);
         _window = new DesktopLayerWindow(desktop, _widget.View, spec.X, spec.Y, spec.Width, spec.Height, 0.88, corner);
+    }
+
+    private (int Width, int Height) ToPixels((double Width, double Height) dip) =>
+        ((int)Math.Round(dip.Width * _scale), (int)Math.Round(dip.Height * _scale));
+
+    private void Resize((int Width, int Height) size)
+    {
+        if (size == (Spec.Width, Spec.Height)) return;
+        (Spec.Width, Spec.Height) = size;
+        _window.SetBounds(Spec.X, Spec.Y, Spec.Width, Spec.Height);
+        _host.Save();
     }
 
     public NativeMethods.RECT Bounds => new() { Left = Spec.X, Top = Spec.Y, Right = Spec.X + Spec.Width, Bottom = Spec.Y + Spec.Height };
@@ -111,7 +139,23 @@ internal sealed class WidgetItem : IDesktopLayerItem, IDisposable
 
     public void Moved() => _host.Save();
 
-    public void Click() => Guard(_widget.OnClick);
+    public void Click(int x, int y)
+    {
+        if (_widget is IInternalWidget positional) Guard(() => positional.OnClickAt(x / _scale, y / _scale));
+        else Guard(_widget.OnClick);
+    }
+
+    public bool ScrollsAt(int x, int y) => _widget is IInternalWidget w && w.ScrollsAt(x / _scale, y / _scale);
+
+    public void ScrollBy(int deltaY)
+    {
+        if (_widget is IInternalWidget w) Guard(() => w.ScrollBy(deltaY / _scale));
+    }
+
+    public void Wheel(int notches)
+    {
+        if (_widget is IInternalWidget w) Guard(() => w.Wheel(notches));
+    }
 
     public void RightClick(int screenX, int screenY)
     {

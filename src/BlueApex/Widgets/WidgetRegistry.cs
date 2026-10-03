@@ -18,10 +18,11 @@ internal sealed class WidgetRegistry
 
     private readonly Dictionary<string, IWidgetProvider> _providers = new(StringComparer.OrdinalIgnoreCase);
 
-    public WidgetRegistry()
+    public WidgetRegistry(Drawer.DrawerManager drawer)
     {
         Register(new ClockProvider());
         Register(new MemoProvider());
+        Register(new ZoneWidgetProvider(drawer));
         foreach (var folder in new[] { AppPluginFolder, UserPluginFolder })
             LoadFolder(folder);
     }

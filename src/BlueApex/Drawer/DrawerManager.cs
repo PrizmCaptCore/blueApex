@@ -36,6 +36,11 @@ internal sealed class DrawerManager : IDisposable
     /// <summary>Something worth a tray balloon: (title, message).</summary>
     public event Action<string, string>? Notice;
 
+    /// <summary>The drawer wants a widget put on the home screen: (widget type, its settings). The widget host listens.</summary>
+    public event Action<string, string>? WidgetRequested;
+
+    public void RequestWidget(string type, string settings) => WidgetRequested?.Invoke(type, settings);
+
     public DrawerManager()
     {
         _icons = DesktopIconView.Connect();
