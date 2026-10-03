@@ -16,7 +16,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyDescriptionAttribute(("Widget SDK for BlueApex: implement IWidgetProvider in a DLL, drop it in %AppData%" +
     "\\BlueApex\\widgets\\<name>\\, and it appears under \"위젯 추가\"."))]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6ea9d1b5384ba1c1c3bbd70d59b501295f0c5ab8")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+faa09b921c47c20c61a78db402867ee85f1f54b4")]
 [assembly: System.Reflection.AssemblyProductAttribute("BlueApex.Sdk")]
 [assembly: System.Reflection.AssemblyTitleAttribute("BlueApex.Sdk")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

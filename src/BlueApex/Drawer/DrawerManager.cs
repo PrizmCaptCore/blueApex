@@ -2,7 +2,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows.Threading;
+using System.Net.Http;
 using BlueApex.Desktop;
+using BlueApex.Games;
 using BlueApex.Zones;
 
 namespace BlueApex.Drawer;
@@ -52,6 +54,7 @@ internal sealed class DrawerManager : IDisposable
         Reconcile();
         Save();
         RescanApps(); // zones may hold app members even when the all-apps card is off
+        RescanGames();
 
         _poll = new DispatcherTimer(DispatcherPriority.Background) { Interval = PollInterval };
         _poll.Tick += (_, _) => Poll();
@@ -76,21 +79,31 @@ internal sealed class DrawerManager : IDisposable
     // Members are desktop items, or installed apps ("app:" ids) that were dragged in from
     // the all-apps card; those resolve against the app list and need no file on the desktop.
     private IEnumerable<DesktopIcon> MembersOf(Zone zone) =>
-        zone.Members.Select(id => _current.GetValueOrDefault(id) ?? _appsById.GetValueOrDefault(id)).OfType<DesktopIcon>();
+        zone.Members.Select(id => _current.GetValueOrDefault(id) ?? _appsById.GetValueOrDefault(id) ?? _gamesById.GetValueOrDefault(id)).OfType<DesktopIcon>();
 
     private Dictionary<string, DesktopIcon> _appsById = new();
 
-    /// <summary>Whether an id can be put in a zone: a desktop item or an installed app.</summary>
-    public bool CanBeMember(string id) => _current.ContainsKey(id) || AppCatalog.IsAppId(id);
+    /// <summary>Whether an id can be put in a zone: a desktop item, an installed app or a game.</summary>
+    public bool CanBeMember(string id) => _current.ContainsKey(id) || AppCatalog.IsAppId(id) || GameCatalog.IsGameId(id);
 
     /// <summary>
-    /// Puts a shortcut to the app on the desktop (visible, pinned) and lets it take the
-    /// app's place in its zone, so the zone shows the shortcut from now on.
+    /// Puts a shortcut to the app (or game) on the desktop (visible, pinned) and lets it take
+    /// the app's place in its zone, so the zone shows the shortcut from now on.
     /// </summary>
     public DesktopIcon PinApp(string appId)
     {
-        var name = _appsById.GetValueOrDefault(appId)?.Name ?? appId[AppCatalog.IdPrefix.Length..];
-        var path = ShortcutWriter.CreateAppShortcut(appId, name, DesktopCatalog.UserDesktop);
+        string path;
+        if (GameCatalog.IsGameId(appId))
+        {
+            var game = GameCatalog.Find(appId) ?? throw new InvalidOperationException("unknown game " + appId);
+            var (url, iconFile) = GameCatalog.ShortcutTarget(game);
+            path = ShortcutWriter.CreateUrlShortcut(game.Name, url, iconFile, DesktopCatalog.UserDesktop);
+        }
+        else
+        {
+            var name = _appsById.GetValueOrDefault(appId)?.Name ?? appId[AppCatalog.IdPrefix.Length..];
+            path = ShortcutWriter.CreateAppShortcut(appId, name, DesktopCatalog.UserDesktop);
+        }
         Refresh(); // the poll must not see the new file as "new" and hide it
         var zone = ZoneOf(appId);
         foreach (var z in _file.Zones) z.Members.Remove(appId);
@@ -307,6 +320,101 @@ internal sealed class DrawerManager : IDisposable
         });
     }
 
+    // --- games (Steam / Epic / GOG) ---
+
+    private List<DesktopIcon> _games = new();
+    private Dictionary<string, DesktopIcon> _gamesById = new();
+    private DateTime _gamesScanned = DateTime.MinValue;
+    private bool _gamesScanning;
+
+    /// <summary>Every known game, by name; installed ones first when uninstalled games are hidden. Empty until the first scan.</summary>
+    public IReadOnlyList<DesktopIcon> Games
+    {
+        get
+        {
+            if (!_gamesScanning && DateTime.UtcNow - _gamesScanned > AppRescanInterval)
+                RescanGames();
+            return ShowUninstalledGames ? _games : _games.Where(g => GameOf(g.Id)?.Installed == true).ToList();
+        }
+    }
+
+    /// <summary>The launcher's record for a game id (source, installed or not...), or null.</summary>
+    public GameInfo? GameOf(string id) => GameCatalog.Find(id);
+
+    public bool ShowGames
+    {
+        get => _file.ShowGames;
+        set { _file.ShowGames = value; Save(); Changed?.Invoke(); }
+    }
+
+    /// <summary>"flat", "source" or "letters".</summary>
+    public string GameLayout
+    {
+        get => _file.GameLayout;
+        set { _file.GameLayout = value; Save(); Changed?.Invoke(); }
+    }
+
+    public bool ShowUninstalledGames
+    {
+        get => _file.ShowUninstalledGames;
+        set { _file.ShowUninstalledGames = value; Save(); Changed?.Invoke(); }
+    }
+
+    public bool SteamLinked => _file.SteamApiKey != null;
+
+    /// <summary>
+    /// Stores the Steam Web API key after a successful fetch of the owned-games list.
+    /// Throws with a user-readable message when Steam rejects the key or the profile is private.
+    /// </summary>
+    public async Task<int> LinkSteamAsync(string apiKey, long steamId)
+    {
+        var count = await SteamLibrary.FetchOwnedAsync(apiKey, steamId);
+        _file.SteamApiKey = apiKey;
+        Save();
+        RescanGames();
+        return count;
+    }
+
+    public void UnlinkSteam()
+    {
+        _file.SteamApiKey = null;
+        SteamLibrary.ForgetOwned();
+        Save();
+        RescanGames();
+    }
+
+    /// <summary>Reads the launchers again (and, once a day, the Steam owned list) off the UI thread.</summary>
+    public void RescanGames()
+    {
+        _gamesScanning = true;
+        var dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+        var apiKey = _file.SteamApiKey;
+        _ = Task.Run(async () =>
+        {
+            if (apiKey != null && SteamLibrary.SteamId64 is { } steamId && SteamLibrary.OwnedCacheAge > TimeSpan.FromHours(24))
+            {
+                try
+                {
+                    await SteamLibrary.FetchOwnedAsync(apiKey, steamId);
+                }
+                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException or System.Text.Json.JsonException)
+                {
+                    Log.Write($"steam owned-games refresh failed: {ex.Message}");
+                }
+            }
+            var games = GameCatalog.Scan(apiKey).Select(g => new DesktopIcon(g.Id, g.Name, 0, 0, false)).ToList();
+            await dispatcher.BeginInvoke(() =>
+            {
+                var changed = games.Count != _games.Count;
+                _games = AppCatalog.Sort(games, AppSortLatinFirst);
+                _gamesById = games.ToDictionary(g => g.Id);
+                _gamesScanned = DateTime.UtcNow;
+                _gamesScanning = false;
+                if (changed) Changed?.Invoke();
+            });
+        });
+    }
+
     /// <summary>Rows of a portal folder shown per page in the drawer (1..50).</summary>
     public int PortalRows
     {
@@ -479,6 +587,11 @@ internal sealed class DrawerManager : IDisposable
 
     public static void Launch(DesktopIcon icon)
     {
+        if (icon.IsGame)
+        {
+            if (GameCatalog.Find(icon.Id) is { } game) GameCatalog.Launch(game);
+            return;
+        }
         if (icon.IsApp)
         {
             // The same route the Start menu uses; works for Store apps and classic programs alike.

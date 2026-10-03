@@ -21,13 +21,21 @@ src/BlueApex/
     DesktopCatalog.cs    ★ 바탕화면 폴더 두 곳을 읽고, 숨김 속성을 켜고 끄고, 공용 바탕화면 권한을 요청.
     AppCatalog.cs        설치된 앱 전체 목록(셸 Applications 폴더). id는 "app:..." 형식, 실행은 explorer shell:AppsFolder\id.
     ShortcutWriter.cs    앱의 .lnk 바로가기 만들기(IShellLink에 앱 pidl을 넣음). "바탕화면에 바로가기 만들기"가 쓴다.
-    DesktopIconView.cs   탐색기의 아이콘 뷰(COM). 셸 항목 목록, 위치 읽기/쓰기, 선택 상태.
+    DesktopIconView.cs   탐색기의 아이콘 뷰(COM). 셸 항목 목록, 위치 읽기/쓰기, 선택 상태. DesktopIcon 레코드(IsApp/IsGame/IsVirtual)도 여기.
     ShellInterop.cs      위 COM 인터페이스들의 C# 선언(vtable 순서). 손대면 안 되는 파일.
     DesktopHost.cs       탐색기의 바탕화면 창 계층(Progman/DefView) 찾기 + Win32 함수 선언(NativeMethods).
     DesktopLayerWindow.cs 아이콘 아래 층에 WPF 내용을 그리는 창. 버튼·위젯이 쓴다.
     DesktopLayerInput.cs ★ 그 층의 마우스 처리(저수준 훅 하나). 클릭/끌기/우클릭을 항목에 전달.
     DesktopPopupMenu.cs  바탕화면 위에서 띄우는 우클릭 메뉴.
     BackupStore.cs       아이콘 위치 스냅샷 저장/복원.
+
+  Games/                 런처(Steam·Epic·GOG)의 게임 목록. 비밀번호는 다루지 않는다.
+    GameCatalog.cs       세 런처를 합쳐 읽고, id("game:steam:108600")로 찾고, 실행/설치 URL을 만든다.
+    SteamLibrary.cs      설치 게임은 appmanifest(.acf), 보유 게임은 Web API(사용자 키), 그림은 Steam의 캐시 폴더.
+    EpicLibrary.cs       설치 게임은 Manifests\*.item, 보유 게임은 런처의 catcache.bin(base64 JSON).
+    GogLibrary.cs        레지스트리 GOG.com\Games (설치된 것만).
+    Vdf.cs               Valve 텍스트 KeyValues(.vdf/.acf) 파서.
+    ImageCache.cs        타일 그림을 한 번만 내려받아 %AppData%\BlueApex\cache\games에 둔다.
 
   Ui/                    생김새. 화면 코드는 여기 것만 가져다 쓴다 (docs/design.md)
     Theme.cs             색·모서리·간격·글자 크기 토큰. 강조색은 Windows 설정에서 읽는다.
@@ -150,6 +158,8 @@ OnExit
 | 카드 우클릭 메뉴 | `DrawerWindow.cs` (`BuildCard`의 `menu`) |
 | 저장 형식(새 필드) | `Zones/LayoutStore.cs`의 `LayoutFile` (필드만 추가하면 JSON에 자동 반영) |
 | 내장 위젯 추가 | `Widgets/BuiltInWidgets.cs` + `WidgetRegistry` 생성자에 `Register` 한 줄 |
+| 런처 추가(예: Ubisoft) | `Games/`에 `XxxLibrary.Scan()` 하나 만들고 `GameCatalog.Scan`·`Launch`·`SourceLabel`에 한 줄씩 |
+| 게임 카드 메뉴·배치 | `DrawerWindow.cs` (`BuildGamesCard`, `LinkSteam`) |
 | 바탕화면 버튼 모양 | `Drawer/DesktopButton.cs` (`BuildFace`) |
 | 색·글자 크기·모서리 값 | `Ui/Theme.cs` (토큰 하나 = 그 값을 쓰는 모든 곳) |
 | 버튼·입력창·메뉴 생김새 | `Ui/Styles.xaml` (컨트롤 종류별 블록) |

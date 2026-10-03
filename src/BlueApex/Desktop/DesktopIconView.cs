@@ -13,6 +13,12 @@ internal sealed record DesktopIcon(string Id, string Name, int X, int Y, bool Se
 
     /// <summary>An installed app from the shell's Applications folder (see <see cref="AppCatalog"/>), not a desktop item.</summary>
     public bool IsApp => AppCatalog.IsAppId(Id);
+
+    /// <summary>A game known to a launcher (see <see cref="Games.GameCatalog"/>), not a desktop item.</summary>
+    public bool IsGame => Games.GameCatalog.IsGameId(Id);
+
+    /// <summary>Not a file on the desktop: an app or a game, which lives in its catalog instead.</summary>
+    public bool IsVirtual => IsApp || IsGame;
 }
 
 /// <summary>Size of one icon cell (explorer's icon spacing), physical pixels.</summary>

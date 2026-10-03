@@ -114,6 +114,10 @@ public partial class App : Application
         showApps.CheckedChanged += (_, _) => _drawer.ShowApps = showApps.Checked;
         menu.Opening += (_, _) => showApps.Checked = _drawer.ShowApps;
         menu.Items.Add(showApps);
+        var showGames = new System.Windows.Forms.ToolStripMenuItem("서랍에 게임 라이브러리 표시 (Steam / Epic / GOG)") { CheckOnClick = true, Checked = _drawer.ShowGames };
+        showGames.CheckedChanged += (_, _) => _drawer.ShowGames = showGames.Checked;
+        menu.Opening += (_, _) => showGames.Checked = _drawer.ShowGames;
+        menu.Items.Add(showGames);
 
         var autostart = new System.Windows.Forms.ToolStripMenuItem("시작 시 자동 실행") { CheckOnClick = true, Checked = Autostart.IsEnabled };
         autostart.CheckedChanged += (_, _) => Autostart.Set(autostart.Checked);

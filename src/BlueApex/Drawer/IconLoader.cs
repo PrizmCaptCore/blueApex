@@ -59,6 +59,7 @@ internal sealed class IconLoader
 
     private static ImageSource? Load(string id, int sizePx, bool thumbnail)
     {
+        if (BlueApex.Games.GameCatalog.IsGameId(id)) return LoadGame(id, sizePx);
         var hbitmap = IntPtr.Zero;
         try
         {
@@ -81,6 +82,39 @@ internal sealed class IconLoader
         {
             if (hbitmap != IntPtr.Zero) DeleteObject(hbitmap);
         }
+    }
+
+    // A game's tile: the launcher's cached picture, else one downloaded from its CDN,
+    // else the executable's icon. Pictures are centre-cropped to a square so Steam
+    // headers and Epic box art sit in the tile like icons do.
+    private static ImageSource? LoadGame(string id, int sizePx)
+    {
+        var game = BlueApex.Games.GameCatalog.Find(id);
+        if (game == null) return null;
+        var file = game.ImageFile ?? (game.ImageUrl != null ? BlueApex.Games.ImageCache.Fetch(game.ImageUrl) : null);
+        if (file != null)
+        {
+            try
+            {
+                var image = new BitmapImage();
+                image.BeginInit();
+                image.CacheOption = BitmapCacheOption.OnLoad;
+                image.UriSource = new Uri(file);
+                image.DecodePixelHeight = sizePx * 2; // enough for a 2x screen, small in memory
+                image.EndInit();
+                var side = Math.Min(image.PixelWidth, image.PixelHeight);
+                ImageSource result = image.PixelWidth == image.PixelHeight
+                    ? image
+                    : new CroppedBitmap(image, new System.Windows.Int32Rect((image.PixelWidth - side) / 2, (image.PixelHeight - side) / 2, side, side));
+                result.Freeze();
+                return result;
+            }
+            catch (Exception ex) when (ex is NotSupportedException or System.IO.IOException or ArgumentException)
+            {
+                // a broken cache file; fall through to the exe icon
+            }
+        }
+        return game.Exe != null && System.IO.File.Exists(game.Exe) ? Load(game.Exe, sizePx, false) : null;
     }
 
     // The shell hands back a 32-bit DIB with premultiplied alpha. WPF's

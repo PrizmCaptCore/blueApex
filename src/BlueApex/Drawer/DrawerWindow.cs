@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using BlueApex.Desktop;
+using BlueApex.Games;
 using BlueApex.Ui;
 using BlueApex.Zones;
 
@@ -81,14 +82,14 @@ internal sealed class DrawerWindow : Window
                 {
                     foreach (var id in ids)
                     {
-                        if (AppCatalog.IsAppId(id)) _drawer.PinApp(id); // an app gets a shortcut on the desktop
+                        if (IsVirtualId(id)) _drawer.PinApp(id); // an app or game gets a shortcut on the desktop
                         else _drawer.Pin(id);
                     }
                 }),
                 BuildDropTarget("휴지통으로", Theme.DangerColor, ids =>
                 {
-                    // Apps are not files: dropping one here just takes it out of its zone.
-                    foreach (var id in ids.Where(AppCatalog.IsAppId)) _drawer.RemoveMember(id);
+                    // Apps and games are not files: dropping one here just takes it out of its zone.
+                    foreach (var id in ids.Where(IsVirtualId)) _drawer.RemoveMember(id);
                     ConfirmDelete(ids.Select(id => _drawer.Icons.FirstOrDefault(i => i.Id == id)).OfType<DesktopIcon>().Where(i => !i.IsShellItem).ToList());
                 }),
             },
@@ -268,7 +269,8 @@ internal sealed class DrawerWindow : Window
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
         {
-            MessageBox.Show($"실행하지 못했습니다: {icon.Name}\n{ex.Message}", "BlueApex", MessageBoxButton.OK, MessageBoxImage.Warning);
+            var hint = icon.IsGame ? $"\n({GameCatalog.SourceLabel(GameCatalog.SourceOf(icon.Id))} 런처가 설치돼 있어야 합니다)" : "";
+            MessageBox.Show($"실행하지 못했습니다: {icon.Name}\n{ex.Message}{hint}", "BlueApex", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
@@ -287,6 +289,8 @@ internal sealed class DrawerWindow : Window
             _cards.Children.Add(BuildCard(_drawer.IsDefault(zone) ? zone.Title + "  (기본)" : zone.Title, _drawer.IconsOf(zone), zone));
         if (_drawer.ShowApps)
             _cards.Children.Add(BuildAppsCard());
+        if (_drawer.ShowGames)
+            _cards.Children.Add(BuildGamesCard());
         _cards.Children.Add(BuildAddCard());
         ApplyFilter();
     }
@@ -469,6 +473,14 @@ internal sealed class DrawerWindow : Window
     {
         switch (mode)
         {
+            case "source":
+            {
+                // One group per launcher, in a fixed order; installed games before owned-only ones.
+                var order = new[] { "steam", "epic", "gog" };
+                foreach (var group in icons.Where(i => i.IsGame).GroupBy(i => GameCatalog.SourceOf(i.Id)).OrderBy(g => Array.IndexOf(order, g.Key)))
+                    yield return (GameCatalog.SourceLabel(group.Key), group.OrderBy(i => _drawer.GameOf(i.Id)?.Installed == true ? 0 : 1).ToList());
+                yield break;
+            }
             case "date":
             {
                 var now = DateTime.Now;
@@ -495,7 +507,7 @@ internal sealed class DrawerWindow : Window
             }
             case "type":
             {
-                var order = new[] { "앱", "바로가기", "폴더", "이미지", "문서", "파일", "시스템" };
+                var order = new[] { "게임", "앱", "바로가기", "폴더", "이미지", "문서", "파일", "시스템" };
                 var sorted = AppCatalog.Sort(icons, _drawer.AppSortLatinFirst);
                 foreach (var label in order)
                 {
@@ -514,9 +526,11 @@ internal sealed class DrawerWindow : Window
         }
     }
 
+    private static bool IsVirtualId(string id) => AppCatalog.IsAppId(id) || GameCatalog.IsGameId(id);
+
     private static DateTime? LastWrite(DesktopIcon icon)
     {
-        if (icon.IsApp || icon.IsShellItem) return null;
+        if (icon.IsVirtual || icon.IsShellItem) return null;
         try
         {
             return System.IO.File.GetLastWriteTime(icon.Id);
@@ -529,6 +543,7 @@ internal sealed class DrawerWindow : Window
 
     private static string Kind(DesktopIcon icon)
     {
+        if (icon.IsGame) return "게임";
         if (icon.IsApp) return "앱";
         if (icon.IsShellItem) return "시스템";
         if (System.IO.Directory.Exists(icon.Id)) return "폴더";
@@ -580,6 +595,72 @@ internal sealed class DrawerWindow : Window
             AddTiles(body, tiles, apps, _drawer.PortalRows * TilesPerRow);
         }
         return card;
+    }
+
+    /// <summary>The card listing games from Steam, Epic Games and GOG (installed, plus owned ones when the account is linked).</summary>
+    private Border BuildGamesCard()
+    {
+        var games = _drawer.Games;
+        var selector = SortSelector(_drawer.GameLayout, mode => _drawer.GameLayout = mode,
+            ("source", "런처별"), ("flat", "전체"), ("letters", "글자별"));
+        var (card, body, _) = Parts.Card(games.Count > 0 ? $"게임  ({games.Count})" : "게임  (불러오는 중...)", selector, alternate: true);
+        var tiles = new WrapPanel();
+        body.Children.Add(tiles);
+
+        var menu = new ContextMenu();
+        if (_drawer.SteamLinked)
+            menu.Items.Add(MenuItem("Steam 연결 해제 (보유 게임 목록 지우기)", _drawer.UnlinkSteam));
+        else
+            menu.Items.Add(MenuItem("Steam 계정 연결 (보유한 게임 전부 불러오기)...", LinkSteam));
+        var epic = MenuItem(EpicLibrary.IsLauncherInstalled
+            ? "Epic Games: 런처에 로그인돼 있으면 라이브러리를 자동으로 읽습니다"
+            : "Epic Games: 런처가 설치돼 있지 않습니다", () => { });
+        epic.IsEnabled = false;
+        menu.Items.Add(epic);
+        menu.Items.Add(MenuItem("라이브러리 다시 읽기", _drawer.RescanGames));
+        menu.Items.Add(new Separator());
+        var showAll = _drawer.ShowUninstalledGames;
+        menu.Items.Add(MenuItem((showAll ? "● " : "○ ") + "미설치 게임도 보기 (흐리게; 클릭하면 설치 화면)", () => _drawer.ShowUninstalledGames = !showAll));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(MenuItem("게임 카드 숨기기 (트레이 메뉴에서 다시 켤 수 있음)", () => _drawer.ShowGames = false));
+        card.ContextMenu = menu;
+
+        if (_drawer.GameLayout is "source" or "letters")
+        {
+            body.Children.Remove(tiles);
+            BuildSections(body, games.ToList(), _drawer.GameLayout == "source" ? "source" : "name", "games");
+        }
+        else
+        {
+            AddTiles(body, tiles, games, _drawer.PortalRows * TilesPerRow);
+        }
+        return card;
+    }
+
+    // Asks for the Web API key (the SteamID comes from the logged-in client) and fetches the owned list.
+    private async void LinkSteam()
+    {
+        var key = ZoneMenu.AskText("Steam 계정 연결", "",
+            "Steam Web API 키를 붙여 넣으세요. https://steamcommunity.com/dev/apikey 에서 만들 수 있고\n" +
+            "(도메인 이름은 아무거나, 예: localhost), 키는 이 PC의 layout.json에만 저장됩니다.\n" +
+            "Steam 프로필 > 개인정보 설정에서 '게임 세부 정보'가 공개여야 목록을 받을 수 있습니다.", multiline: false)?.Trim();
+        if (string.IsNullOrEmpty(key)) return;
+        var steamId = SteamLibrary.SteamId64;
+        if (steamId == null)
+        {
+            var text = ZoneMenu.AskText("SteamID", "", "로그인된 Steam 클라이언트를 찾지 못했습니다. 64비트 SteamID(7656119...)를 입력하세요.", multiline: false);
+            if (!long.TryParse(text?.Trim(), out var parsed)) return;
+            steamId = parsed;
+        }
+        try
+        {
+            var count = await _drawer.LinkSteamAsync(key, steamId.Value);
+            MessageBox.Show($"Steam 게임 {count}개를 불러왔습니다.", "BlueApex", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException or InvalidOperationException or System.Text.Json.JsonException)
+        {
+            MessageBox.Show("Steam 연결에 실패했습니다.\n" + ex.Message, "BlueApex", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
     }
 
     // Tiles are built a page at a time ("더 보기" adds the next page); a search builds
@@ -691,9 +772,15 @@ internal sealed class DrawerWindow : Window
     {
         var portalEntry = !_drawer.IsDesktopItem(icon.Id);
         var (tile, image) = Parts.Tile(icon.Name, badge: _drawer.IsOnDesktop(icon.Id));
-        if (icon.IsApp)
+        if (icon.IsGame && _drawer.GameOf(icon.Id) is { Installed: false })
         {
-            // App icons can be slow for Store apps; fetch them off the UI thread like thumbnails.
+            // Owned but not on this PC: shown dimmed; opening it goes to the launcher's install page.
+            image.Opacity = 0.45;
+            tile.ToolTip = icon.Name + "  (미설치 · 클릭하면 설치 화면)";
+        }
+        if (icon.IsVirtual)
+        {
+            // App and game pictures can be slow (Store apps, downloads); fetch them off the UI thread like thumbnails.
             var generation = _generation;
             image.Source = _iconLoader.GetAsync(icon.Id, IconPx, false, Dispatcher, ready =>
             {
@@ -744,7 +831,7 @@ internal sealed class DrawerWindow : Window
         };
         tile.MouseMove += (_, e) =>
         {
-            if (portalEntry && !icon.IsApp) return; // files seen through a portal are not desktop items; nothing to drag them into
+            if (portalEntry && !icon.IsVirtual) return; // files seen through a portal are not desktop items; nothing to drag them into
             if (e.LeftButton != MouseButtonState.Pressed || _dragId != icon.Id) return;
             var delta = e.GetPosition(this) - _dragStart;
             if (Math.Abs(delta.X) < 6 && Math.Abs(delta.Y) < 6) return;
@@ -786,12 +873,13 @@ internal sealed class DrawerWindow : Window
         var label = many ? $"선택한 {ids.Count}개" : "";
         var menu = new ContextMenu();
 
-        if (icon.IsApp)
+        if (icon.IsVirtual)
         {
-            // Installed app: launch; add to / move between zones; make a desktop shortcut.
-            var appIds = ids.Where(AppCatalog.IsAppId).ToList();
+            // Installed app or game: launch; add to / move between zones; make a desktop shortcut.
+            var appIds = ids.Where(IsVirtualId).ToList();
             var inZone = _drawer.ZoneOf(icon.Id);
-            menu.Items.Add(MenuItem("열기", () => Launch(icon)));
+            var game = icon.IsGame ? _drawer.GameOf(icon.Id) : null;
+            menu.Items.Add(MenuItem(game is { Installed: false } ? "설치 (런처 열기)" : "열기", () => Launch(icon)));
             var add = new MenuItem { Header = $"{label} {(inZone == null ? "구역에 추가" : "구역으로 이동")}".Trim() };
             foreach (var zone in _drawer.Zones.Where(z => !z.IsPortal))
                 add.Items.Add(MenuItem(_drawer.IsDefault(zone) ? zone.Title + " (기본)" : zone.Title, () =>

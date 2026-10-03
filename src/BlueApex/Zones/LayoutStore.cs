@@ -42,6 +42,18 @@ internal sealed class LayoutFile
     /// <summary>All-apps card folded into per-letter groups instead of one flat list.</summary>
     public bool AppSections { get; set; }
 
+    /// <summary>Whether the drawer has a card listing games from Steam / Epic / GOG.</summary>
+    public bool ShowGames { get; set; } = true;
+
+    /// <summary>Games card layout: "flat", "source" (one group per launcher) or "letters".</summary>
+    public string GameLayout { get; set; } = "source";
+
+    /// <summary>Also list games the account owns but has not installed (dimmed; click opens the install page).</summary>
+    public bool ShowUninstalledGames { get; set; } = true;
+
+    /// <summary>The user's Steam Web API key, for the owned-games list. Null = not linked.</summary>
+    public string? SteamApiKey { get; set; }
+
     /// <summary>Widgets on the home screen.</summary>
     public List<Widgets.WidgetSpec> Widgets { get; set; } = new();
 }
