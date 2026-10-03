@@ -26,6 +26,7 @@ internal sealed class ZoneMenu : IDisposable
         _zones = zones;
         _menu.Items.Add("이름 바꾸기", null, (_, _) => Rename());
         _menu.Items.Add("자동 분류 규칙...", null, (_, _) => EditPatterns());
+        _menu.Items.Add("꾸미기...", null, (_, _) => { if (_zone != null) ZoneStyleDialog.Show(_zones, _zone); });
         _menu.Items.Add("새 구역", null, (_, _) => _zones.AddZone());
         _menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         _menu.Items.Add("구역 삭제", null, (_, _) => Delete());

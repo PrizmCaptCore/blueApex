@@ -26,15 +26,15 @@ internal sealed class ZoneSurface : IDisposable
     /// <summary>Side of the resize grip square in the bottom-right corner, in DIPs (must match ZoneView.xaml).</summary>
     public const double GripSizeDip = 20;
 
-    private const int CornerRadius = 12;
-
     private readonly DesktopHost _desktop;
     private readonly System.Windows.Forms.NativeWindow _frame = new();
     private readonly HwndSource _content;
     private readonly ZoneView _view;
+    private int _cornerRadius = ZoneStyle.BuiltIn.CornerRadius!.Value;
+    private (int Width, int Height) _size;
 
-    /// <param name="opacity">0 (invisible) to 1 (opaque).</param>
-    public ZoneSurface(DesktopHost desktop, Zone zone, double opacity = 0.7)
+    /// <param name="style">A fully resolved style (no nulls); see <see cref="ZoneStyle.Over"/>.</param>
+    public ZoneSurface(DesktopHost desktop, Zone zone, ZoneStyle style)
     {
         _desktop = desktop;
         var origin = desktop.IconToHost(zone.X, zone.Y);
@@ -51,9 +51,7 @@ internal sealed class ZoneSurface : IDisposable
             Width = zone.Width,
             Height = height,
         });
-        NativeMethods.SetLayeredWindowAttributes(_frame.Handle, 0, (byte)Math.Round(Math.Clamp(opacity, 0, 1) * 255),
-            NativeMethods.LWA_ALPHA);
-        ApplyShape(zone.Width, height);
+        _size = (zone.Width, height);
 
         _content = new HwndSource(new HwndSourceParameters("ZoneContent")
         {
@@ -69,8 +67,19 @@ internal sealed class ZoneSurface : IDisposable
         _content.CompositionTarget.RenderMode = RenderMode.SoftwareOnly;
         _view = new ZoneView { Title = zone.Title };
         _content.RootVisual = _view;
+        ApplyStyle(style);
 
         desktop.PlaceBelowIcons(_frame.Handle);
+    }
+
+    /// <summary>Applies colors, font size, whole-window opacity and corner radius.</summary>
+    public void ApplyStyle(ZoneStyle style)
+    {
+        var opacity = Math.Clamp(style.Opacity ?? ZoneStyle.BuiltIn.Opacity!.Value, 0.05, 1);
+        NativeMethods.SetLayeredWindowAttributes(_frame.Handle, 0, (byte)Math.Round(opacity * 255), NativeMethods.LWA_ALPHA);
+        _cornerRadius = Math.Clamp(style.CornerRadius ?? ZoneStyle.BuiltIn.CornerRadius!.Value, 0, 60);
+        ApplyShape(_size.Width, _size.Height);
+        _view.Apply(style);
     }
 
     public IntPtr Handle => _frame.Handle;
@@ -90,6 +99,7 @@ internal sealed class ZoneSurface : IDisposable
     {
         var origin = _desktop.IconToHost(zone.X, zone.Y);
         var height = ShownHeight(zone);
+        _size = (zone.Width, height);
         NativeMethods.SetWindowPos(_frame.Handle, IntPtr.Zero, origin.X, origin.Y, zone.Width, height,
             NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
         ApplyShape(zone.Width, height);
@@ -104,7 +114,7 @@ internal sealed class ZoneSurface : IDisposable
     // The system owns the region after SetWindowRgn, so it is not deleted here.
     private void ApplyShape(int width, int height)
     {
-        var region = NativeMethods.CreateRoundRectRgn(0, 0, width + 1, height + 1, CornerRadius * 2, CornerRadius * 2);
+        var region = NativeMethods.CreateRoundRectRgn(0, 0, width + 1, height + 1, _cornerRadius * 2, _cornerRadius * 2);
         NativeMethods.SetWindowRgn(_frame.Handle, region, true);
     }
 

@@ -329,7 +329,7 @@ internal sealed class ZoneMouseInteraction : IDisposable
             if (Math.Abs(_latestPoint.X - _drawStart.X) < DrawThreshold && Math.Abs(_latestPoint.Y - _drawStart.Y) < DrawThreshold)
                 return; // not a drag yet
             _draft = new Zone { Title = "새 구역", X = x, Y = y, Width = Math.Max(width, 1), Height = Math.Max(height, 1) };
-            _draftSurface = new ZoneSurface(_desktop, _draft);
+            _draftSurface = new ZoneSurface(_desktop, _draft, _zones.EffectiveStyle(_draft));
             return;
         }
 

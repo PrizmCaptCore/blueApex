@@ -17,6 +17,9 @@ internal sealed class Zone
     /// <summary>Rolled up: only the title bar shows and the members are parked off-screen. Width/Height keep the full size.</summary>
     public bool Rolled { get; set; }
 
+    /// <summary>This zone's own look; null means the layout's default style.</summary>
+    public ZoneStyle? Style { get; set; }
+
     /// <summary>Icon ids (<see cref="Desktop.DesktopIcon.Id"/>) in slot order.</summary>
     public List<string> Members { get; set; } = new();
 

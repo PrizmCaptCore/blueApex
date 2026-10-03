@@ -181,7 +181,7 @@ internal sealed class ZoneManager : IDisposable
             Height = Math.Max(height, minHeight),
         };
         _file.Zones.Add(zone);
-        _surfaces[zone.Id] = new ZoneSurface(_desktop, zone);
+        _surfaces[zone.Id] = new ZoneSurface(_desktop, zone, EffectiveStyle(zone));
 
         var icons = _icons.GetIcons();
         Adopt(zone, icons);
@@ -231,6 +231,34 @@ internal sealed class ZoneManager : IDisposable
         NativeMethods.ShowWindow(_desktop.IconView, Hidden ? NativeMethods.SW_HIDE : NativeMethods.SW_SHOWNA);
         foreach (var surface in _surfaces.Values)
             surface.Visible = !Hidden;
+    }
+
+    /// <summary>The zone's look with every field resolved: its own style over the default over the built-in.</summary>
+    public ZoneStyle EffectiveStyle(Zone zone) =>
+        (zone.Style ?? new ZoneStyle()).Over(_file.DefaultStyle).Over(ZoneStyle.BuiltIn);
+
+    /// <summary>The look a zone with no style of its own gets.</summary>
+    public ZoneStyle DefaultStyle => _file.DefaultStyle.Over(ZoneStyle.BuiltIn);
+
+    /// <summary>Shows a style on the zone without saving it (live preview while editing).</summary>
+    public void PreviewStyle(Zone zone, ZoneStyle style) =>
+        _surfaces[zone.Id].ApplyStyle(style.Over(ZoneStyle.BuiltIn));
+
+    /// <summary>Saves a style for one zone, or (asDefault) for the layout and clears the zone's own.</summary>
+    public void SetStyle(Zone zone, ZoneStyle? style, bool asDefault)
+    {
+        if (asDefault)
+        {
+            _file.DefaultStyle = style ?? new ZoneStyle();
+            zone.Style = null;
+        }
+        else
+        {
+            zone.Style = style;
+        }
+        foreach (var z in _file.Zones)
+            _surfaces[z.Id].ApplyStyle(EffectiveStyle(z));
+        Save();
     }
 
     public void SetPatterns(Zone zone, IEnumerable<string> patterns)
@@ -301,7 +329,7 @@ internal sealed class ZoneManager : IDisposable
     private void Apply()
     {
         foreach (var zone in _file.Zones)
-            _surfaces[zone.Id] = new ZoneSurface(_desktop, zone);
+            _surfaces[zone.Id] = new ZoneSurface(_desktop, zone, EffectiveStyle(zone));
 
         var icons = _icons.GetIcons();
         foreach (var zone in _file.Zones)
