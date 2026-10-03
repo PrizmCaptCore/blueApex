@@ -347,6 +347,26 @@ internal sealed class DrawerManager : IDisposable
         set { _file.ShowGames = value; Save(); Changed?.Invoke(); }
     }
 
+    // --- folded cards (the window applies the fold itself; this only remembers it) ---
+
+    public void SetRolled(Zone zone, bool rolled)
+    {
+        zone.Rolled = rolled;
+        Save();
+    }
+
+    public bool AppsFolded
+    {
+        get => _file.AppsFolded;
+        set { _file.AppsFolded = value; Save(); }
+    }
+
+    public bool GamesFolded
+    {
+        get => _file.GamesFolded;
+        set { _file.GamesFolded = value; Save(); }
+    }
+
     /// <summary>"flat", "source" or "letters".</summary>
     public string GameLayout
     {

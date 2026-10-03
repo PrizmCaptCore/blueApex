@@ -14,7 +14,7 @@ internal sealed class Zone
     public int Width { get; set; }
     public int Height { get; set; }
 
-    /// <summary>Rolled up: only the title bar shows and the members are parked off-screen. Width/Height keep the full size.</summary>
+    /// <summary>Folded: the card in the drawer shows only its title (click the title to toggle).</summary>
     public bool Rolled { get; set; }
 
     /// <summary>

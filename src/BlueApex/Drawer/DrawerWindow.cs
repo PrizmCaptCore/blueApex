@@ -300,7 +300,9 @@ internal sealed class DrawerWindow : Window
         // Portals show a folder as-is; other zones get the layout selector (manual / name / date / type).
         var selector = zone.IsPortal ? null : SortSelector(zone.SortMode, mode => _drawer.SetSortMode(zone, mode),
             ("manual", "수동"), ("name", "이름"), ("date", "날짜"), ("type", "종류"));
-        var (card, body, header) = Parts.Card(zone.IsPortal ? "📁 " + title : title, selector);
+        var parts = Parts.Card(zone.IsPortal ? "📁 " + title : title, selector, folded: zone.Rolled);
+        parts.Folded = folded => _drawer.SetRolled(zone, folded); // click on the title folds the card to its title
+        var (card, body, header) = parts;
         var tiles = new WrapPanel();
         body.Children.Add(tiles);
         card.AllowDrop = true;
@@ -391,8 +393,12 @@ internal sealed class DrawerWindow : Window
             }));
         }
         // Right-click anywhere in the card that is not a tile (tiles have their own menu).
+        menu.Items.Insert(0, MenuItem(zone.Rolled ? "펼치기" : "접기", () =>
+        {
+            parts.SetFolded(!zone.Rolled);
+            _drawer.SetRolled(zone, !zone.Rolled);
+        }));
         card.ContextMenu = menu;
-        header.Cursor = Cursors.Hand;
 
         if (!zone.IsPortal && zone.SortMode != "manual")
         {
@@ -585,7 +591,9 @@ internal sealed class DrawerWindow : Window
         var apps = _drawer.Apps;
         var selector = SortSelector(_drawer.AppSections ? "letters" : "flat",
             mode => _drawer.AppSections = mode == "letters", ("flat", "전체"), ("letters", "글자별"));
-        var (card, body, _) = Parts.Card(apps.Count > 0 ? $"모든 앱  ({apps.Count})" : "모든 앱  (불러오는 중...)", selector, alternate: true);
+        var parts = Parts.Card(apps.Count > 0 ? $"모든 앱  ({apps.Count})" : "모든 앱  (불러오는 중...)", selector, alternate: true, folded: _drawer.AppsFolded);
+        parts.Folded = folded => _drawer.AppsFolded = folded;
+        var (card, body, _) = parts;
         var tiles = new WrapPanel();
         body.Children.Add(tiles);
         var menu = new ContextMenu();
@@ -613,7 +621,9 @@ internal sealed class DrawerWindow : Window
         var games = _drawer.Games;
         var selector = SortSelector(_drawer.GameLayout, mode => _drawer.GameLayout = mode,
             ("source", "런처별"), ("flat", "전체"), ("letters", "글자별"));
-        var (card, body, _) = Parts.Card(games.Count > 0 ? $"게임  ({games.Count})" : "게임  (불러오는 중...)", selector, alternate: true);
+        var parts = Parts.Card(games.Count > 0 ? $"게임  ({games.Count})" : "게임  (불러오는 중...)", selector, alternate: true, folded: _drawer.GamesFolded);
+        parts.Folded = folded => _drawer.GamesFolded = folded;
+        var (card, body, _) = parts;
         var tiles = new WrapPanel();
         body.Children.Add(tiles);
 

@@ -11,36 +11,93 @@ namespace BlueApex.Ui;
 /// </summary>
 internal static class Parts
 {
-    /// <summary>A rounded translucent card with a title row; <paramref name="headerRight"/> goes at the row's right end.</summary>
-    public static (Border Card, StackPanel Body, TextBlock Title) Card(string title, UIElement? headerRight = null, bool alternate = false)
+    /// <summary>
+    /// A rounded translucent card with a title row that folds the card when clicked;
+    /// <paramref name="headerRight"/> goes at the row's right end. Put content in <c>Body</c>;
+    /// <c>SetFolded</c> hides it and shrinks the card to its title. <c>Folded</c> fires after a click.
+    /// </summary>
+    public static CardParts Card(string title, UIElement? headerRight = null, bool alternate = false, bool folded = false)
     {
+        var arrow = new TextBlock
+        {
+            Foreground = Theme.TextDim,
+            FontSize = Theme.FontBody,
+            Width = 16,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(Theme.Space1 + 2, 0, 0, Theme.Space2 + 2),
+        };
         var titleBlock = new TextBlock
         {
             Text = title,
             Foreground = Theme.Text,
             FontSize = Theme.FontTitle,
             FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(Theme.Space1 + 2, 0, Theme.Space1 + 2, Theme.Space2 + 2),
+            Margin = new Thickness(0, 0, Theme.Space1 + 2, Theme.Space2 + 2),
         };
-        var row = new DockPanel();
+        var row = new DockPanel { Tag = "control", Cursor = System.Windows.Input.Cursors.Hand, Background = Brushes.Transparent };
         if (headerRight != null)
         {
             DockPanel.SetDock(headerRight, Dock.Right);
             row.Children.Add(headerRight);
         }
+        row.Children.Add(arrow);
         row.Children.Add(titleBlock);
-        var body = new StackPanel { Children = { row } };
+        var content = new StackPanel();
         var card = new Border
         {
             Width = Theme.CardWidth,
-            MinHeight = 140,
+            VerticalAlignment = VerticalAlignment.Top, // a WrapPanel row would otherwise stretch a folded card to its neighbours' height
             Margin = new Thickness(Theme.Space3),
             Padding = new Thickness(Theme.Space3),
             CornerRadius = new CornerRadius(Theme.RadiusCard),
             Background = alternate ? Theme.CardAlt : Theme.Card,
-            Child = body,
+            Child = new StackPanel { Children = { row, content } },
         };
-        return (card, body, titleBlock);
+        var parts = new CardParts(card, content, titleBlock);
+        void Apply(bool fold)
+        {
+            content.Visibility = fold ? Visibility.Collapsed : Visibility.Visible;
+            card.MinHeight = fold ? 0 : 140;
+            arrow.Text = fold ? "▸" : "▾";
+            titleBlock.Margin = new Thickness(0, 0, Theme.Space1 + 2, fold ? 0 : Theme.Space2 + 2);
+            arrow.Margin = new Thickness(Theme.Space1 + 2, 0, 0, fold ? 0 : Theme.Space2 + 2);
+        }
+        parts.SetFolded = Apply;
+        Apply(folded);
+        row.MouseLeftButtonUp += (_, e) =>
+        {
+            if (e.OriginalSource is DependencyObject source && headerRight != null && IsInside(source, headerRight)) return;
+            var fold = content.Visibility == Visibility.Visible;
+            Apply(fold);
+            parts.Folded?.Invoke(fold);
+        };
+        return parts;
+    }
+
+    private static bool IsInside(DependencyObject node, UIElement ancestor)
+    {
+        for (DependencyObject? n = node; n != null; n = VisualTreeHelper.GetParent(n))
+            if (ReferenceEquals(n, ancestor)) return true;
+        return false;
+    }
+
+    /// <summary>What <see cref="Card"/> hands back. Deconstructs to (card, body, title).</summary>
+    public sealed class CardParts
+    {
+        public Border Card { get; }
+        /// <summary>Where the card's content goes; hidden while folded.</summary>
+        public StackPanel Body { get; }
+        public TextBlock Title { get; }
+        public Action<bool> SetFolded { get; internal set; } = _ => { };
+        /// <summary>Raised when the user folds (true) or unfolds (false) the card by clicking its title.</summary>
+        public Action<bool>? Folded { get; set; }
+
+        internal CardParts(Border card, StackPanel body, TextBlock title) { Card = card; Body = body; Title = title; }
+
+        public void Deconstruct(out Border card, out StackPanel body, out TextBlock title)
+        {
+            card = Card; body = Body; title = Title;
+        }
     }
 
     /// <summary>An icon tile: image on top, name below, optional accent dot badge.</summary>

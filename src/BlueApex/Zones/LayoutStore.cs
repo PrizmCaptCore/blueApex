@@ -42,6 +42,10 @@ internal sealed class LayoutFile
     /// <summary>All-apps card folded into per-letter groups instead of one flat list.</summary>
     public bool AppSections { get; set; }
 
+    /// <summary>The all-apps / games cards collapsed to their title (zones keep this in <see cref="Zone.Rolled"/>).</summary>
+    public bool AppsFolded { get; set; }
+    public bool GamesFolded { get; set; }
+
     /// <summary>Whether the drawer has a card listing games from Steam / Epic / GOG.</summary>
     public bool ShowGames { get; set; } = true;
 
