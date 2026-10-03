@@ -15,7 +15,7 @@ namespace BlueApex;
 internal sealed class Updater
 {
     /// <summary>The GitHub repository releases are published to.</summary>
-    public const string Repo = "PrizmBlueCaptCore/BlueApex";
+    public const string Repo = "PrizmCaptCore/blueApex";
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
 
