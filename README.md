@@ -20,6 +20,7 @@ dotnet run --project src/BlueApex
 ## 더 읽기
 
 - [docs/usage.md](docs/usage.md) — 사용법과 동작 방식
+- [docs/code-tour.md](docs/code-tour.md) — 코드 안내(구조, 흐름, 쓰인 C# 문법)
 - [docs/widget-sdk.md](docs/widget-sdk.md) — 위젯 플러그인 만들기 (`samples/` 참고)
 
 ## 라이선스
