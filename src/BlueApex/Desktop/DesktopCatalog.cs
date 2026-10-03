@@ -110,7 +110,7 @@ internal static class DesktopCatalog
     }
 
     /// <summary>The visible entries of any folder (for portal zones), newest first, capped so a huge folder stays usable.</summary>
-    public static List<DesktopIcon> EnumerateFolder(string folder, int limit = 300)
+    public static List<DesktopIcon> EnumerateFolder(string folder, int limit = 1000)
     {
         var icons = new List<DesktopIcon>();
         if (!Directory.Exists(folder)) return icons;

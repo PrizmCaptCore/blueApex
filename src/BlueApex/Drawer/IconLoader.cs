@@ -8,16 +8,54 @@ namespace BlueApex.Drawer;
 internal sealed class IconLoader
 {
     private readonly Dictionary<string, ImageSource?> _cache = new();
+    private readonly object _gate = new();
+    // Thumbnails are decoded on worker threads, a few at a time, so a folder full of
+    // photos neither freezes the drawer nor saturates the CPU.
+    private readonly SemaphoreSlim _thumbnailSlots = new(2);
 
     /// <param name="thumbnail">Prefer a thumbnail (for pictures, videos) over the file-type icon.</param>
     public ImageSource? Get(string id, int sizePx, bool thumbnail = false)
     {
-        var key = thumbnail ? id + "\n#thumb" : id;
-        if (_cache.TryGetValue(key, out var cached)) return cached;
+        var key = Key(id, thumbnail);
+        lock (_gate)
+        {
+            if (_cache.TryGetValue(key, out var cached)) return cached;
+        }
         var image = Load(id, sizePx, thumbnail);
-        _cache[key] = image;
+        lock (_gate) _cache[key] = image;
         return image;
     }
+
+    /// <summary>
+    /// Like <see cref="Get"/> but off the UI thread: returns the cached image at once if
+    /// there is one, otherwise null and later calls <paramref name="ready"/> on the
+    /// dispatcher with the decoded image (never for a failed decode).
+    /// </summary>
+    public ImageSource? GetAsync(string id, int sizePx, bool thumbnail, System.Windows.Threading.Dispatcher dispatcher, Action<ImageSource> ready)
+    {
+        var key = Key(id, thumbnail);
+        lock (_gate)
+        {
+            if (_cache.TryGetValue(key, out var cached)) return cached;
+        }
+        _ = Task.Run(async () =>
+        {
+            await _thumbnailSlots.WaitAsync();
+            try
+            {
+                var image = Load(id, sizePx, thumbnail); // frozen, so it may cross threads
+                lock (_gate) _cache[key] = image;
+                if (image != null) await dispatcher.BeginInvoke(() => ready(image));
+            }
+            finally
+            {
+                _thumbnailSlots.Release();
+            }
+        });
+        return null;
+    }
+
+    private static string Key(string id, bool thumbnail) => thumbnail ? id + "\n#thumb" : id;
 
     private static ImageSource? Load(string id, int sizePx, bool thumbnail)
     {
@@ -49,8 +87,12 @@ internal sealed class IconLoader
     private static BitmapSource FromHBitmap(IntPtr hbitmap)
     {
         if (GetObject(hbitmap, Marshal.SizeOf<BITMAP>(), out var bm) == 0 || bm.bmBits == IntPtr.Zero || bm.bmBitsPixel != 32)
-            return System.Windows.Interop.Imaging.CreateBitmapSourceFromHBitmap(hbitmap, IntPtr.Zero,
+        {
+            var plain = System.Windows.Interop.Imaging.CreateBitmapSourceFromHBitmap(hbitmap, IntPtr.Zero,
                 System.Windows.Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+            plain.Freeze();
+            return plain;
+        }
 
         // DIB sections are stored bottom-up, so the rows are copied in reverse.
         var stride = bm.bmWidthBytes;

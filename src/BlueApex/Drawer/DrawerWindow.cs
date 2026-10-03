@@ -263,6 +263,7 @@ internal sealed class DrawerWindow : Window
         _tiles.Clear();
         _tileById.Clear();
         _selected.IntersectWith(_drawer.Icons.Select(i => i.Id)); // forget icons that are gone
+        _generation++; // thumbnails still decoding for the old tiles are dropped when they arrive
         foreach (var zone in _drawer.Zones)
             _cards.Children.Add(BuildCard(_drawer.IsDefault(zone) ? zone.Title + "  (기본)" : zone.Title, _drawer.IconsOf(zone), zone));
         _cards.Children.Add(BuildAddCard());
@@ -377,14 +378,40 @@ internal sealed class DrawerWindow : Window
         if (zone.IsPortal)
             header.Text = "📁 " + title;
 
-        foreach (var icon in icons)
+        // A portal can hold hundreds of files; only the first page is built, the rest
+        // on demand, so opening the drawer stays instant.
+        var pending = new Queue<DesktopIcon>(icons);
+        Button? more = null;
+        void AddPage()
         {
-            var tile = BuildTile(icon);
-            tiles.Children.Add(tile);
-            _tiles.Add((tile, icon, tiles));
+            for (var n = 0; n < PortalPageSize && pending.Count > 0; n++)
+            {
+                var icon = pending.Dequeue();
+                var tile = BuildTile(icon);
+                tiles.Children.Add(tile);
+                _tiles.Add((tile, icon, tiles));
+            }
+            if (more != null) body.Children.Remove(more);
+            if (pending.Count == 0) return;
+            more = new Button
+            {
+                Content = $"더 보기 (남은 {pending.Count}개)",
+                Margin = new Thickness(6, 8, 6, 0),
+                Padding = new Thickness(12, 6, 12, 6),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Background = new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF)),
+                Foreground = Brushes.White,
+                BorderThickness = new Thickness(0),
+                Cursor = Cursors.Hand,
+            };
+            more.Click += (_, _) => AddPage();
+            body.Children.Add(more);
         }
+        AddPage();
         return card;
     }
+
+    private const int PortalPageSize = 60;
 
     // --- selection ---
 
@@ -427,7 +454,22 @@ internal sealed class DrawerWindow : Window
     private FrameworkElement BuildTile(DesktopIcon icon)
     {
         var portalEntry = !_drawer.IsDesktopItem(icon.Id);
-        var image = new Image { Source = _iconLoader.Get(icon.Id, IconPx, thumbnail: portalEntry), Width = IconPx, Height = IconPx, Margin = new Thickness(0, 6, 0, 4) };
+        var image = new Image { Width = IconPx, Height = IconPx, Margin = new Thickness(0, 6, 0, 4) };
+        if (portalEntry)
+        {
+            // File-type icon now (cheap); the thumbnail replaces it when a worker has decoded it.
+            var generation = _generation;
+            image.Source = _iconLoader.Get(icon.Id, IconPx);
+            var thumb = _iconLoader.GetAsync(icon.Id, IconPx * 2, true, Dispatcher, ready =>
+            {
+                if (generation == _generation) image.Source = ready;
+            });
+            if (thumb != null) image.Source = thumb;
+        }
+        else
+        {
+            image.Source = _iconLoader.Get(icon.Id, IconPx);
+        }
         var name = new TextBlock
         {
             Text = icon.Name,
@@ -524,6 +566,7 @@ internal sealed class DrawerWindow : Window
     }
 
     private bool _modifiedClick;
+    private int _generation;
 
     // Menu actions apply to the whole selection when the clicked tile is part of it.
     private ContextMenu BuildTileMenu(DesktopIcon icon)
