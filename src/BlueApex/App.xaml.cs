@@ -99,8 +99,8 @@ public partial class App : Application
         if (_widgets != null)
         {
             var add = new System.Windows.Forms.ToolStripMenuItem("위젯 추가");
-            foreach (var (type, label) in WidgetHost.Kinds)
-                add.DropDownItems.Add(label, null, (_, _) => _widgets.Add(type));
+            foreach (var kind in _widgets.Kinds)
+                add.DropDownItems.Add(kind.DisplayName, null, (_, _) => _widgets.Add(kind));
             menu.Items.Add(add);
         }
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());

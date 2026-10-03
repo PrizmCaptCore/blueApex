@@ -1,0 +1,66 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>BlueApex.Sdk</name>
+    </assembly>
+    <members>
+        <member name="T:BlueApex.Sdk.IWidgetProvider">
+            <summary>
+            A kind of widget. BlueApex finds every public class implementing this (with a
+            parameterless constructor) in each DLL under <c>%AppData%\BlueApex\widgets\*\</c>
+            and under <c>widgets\</c> next to BlueApex.exe, and lists it in "위젯 추가".
+            </summary>
+        </member>
+        <member name="P:BlueApex.Sdk.IWidgetProvider.Id">
+            <summary>Stable identifier saved in the layout, e.g. "weather". Lower-case, no spaces.</summary>
+        </member>
+        <member name="P:BlueApex.Sdk.IWidgetProvider.DisplayName">
+            <summary>What the user sees in menus, e.g. "날씨".</summary>
+        </member>
+        <member name="P:BlueApex.Sdk.IWidgetProvider.DefaultSizeDip">
+            <summary>Size of a new instance, in device-independent pixels (96 DPI units).</summary>
+        </member>
+        <member name="M:BlueApex.Sdk.IWidgetProvider.Create(BlueApex.Sdk.IWidgetContext)">
+            <summary>Creates a widget instance. Called on the UI thread; the context is unique to that instance.</summary>
+        </member>
+        <member name="T:BlueApex.Sdk.IWidget">
+            <summary>
+            One widget on the desktop. Its <see cref="P:BlueApex.Sdk.IWidget.View"/> is drawn on the desktop layer
+            below the icons, which means:
+            <list type="bullet">
+            <item>it never receives mouse or keyboard input of its own; a click arrives as <see cref="M:BlueApex.Sdk.IWidget.OnClick"/>, a right-click as a menu built from <see cref="P:BlueApex.Sdk.IWidget.MenuItems"/>;</item>
+            <item>transparency is one opacity for the whole window (no per-pixel alpha); draw on an opaque background;</item>
+            <item>rendering is software-based, so keep animations modest.</item>
+            </list>
+            Dispose stops timers and network work.
+            </summary>
+        </member>
+        <member name="M:BlueApex.Sdk.IWidget.OnClick">
+            <summary>Left click (press and release without dragging). Optional.</summary>
+        </member>
+        <member name="P:BlueApex.Sdk.IWidget.MenuItems">
+            <summary>Extra right-click menu entries, shown above "위젯 삭제".</summary>
+        </member>
+        <member name="T:BlueApex.Sdk.WidgetMenuItem">
+            <summary>A right-click menu entry. A null <paramref name="Label"/> is a separator.</summary>
+        </member>
+        <member name="M:BlueApex.Sdk.WidgetMenuItem.#ctor(System.String,System.Action)">
+            <summary>A right-click menu entry. A null <paramref name="Label"/> is a separator.</summary>
+        </member>
+        <member name="T:BlueApex.Sdk.IWidgetContext">
+            <summary>What BlueApex offers a widget instance.</summary>
+        </member>
+        <member name="P:BlueApex.Sdk.IWidgetContext.Settings">
+            <summary>Free-form settings for this instance (JSON, text...). Assigning saves immediately. Empty for a new widget.</summary>
+        </member>
+        <member name="P:BlueApex.Sdk.IWidgetContext.Dispatcher">
+            <summary>The UI thread's dispatcher, for updates coming from timers or network calls.</summary>
+        </member>
+        <member name="M:BlueApex.Sdk.IWidgetContext.AskText(System.String,System.String,System.String,System.Boolean)">
+            <summary>Asks the user for text in a small dialog; null if cancelled. <paramref name="hint"/> is shown above the box.</summary>
+        </member>
+        <member name="M:BlueApex.Sdk.IWidgetContext.Log(System.String)">
+            <summary>Writes a line to BlueApex's log (%AppData%\BlueApex\log.txt).</summary>
+        </member>
+    </members>
+</doc>

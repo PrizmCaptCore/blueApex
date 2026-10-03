@@ -5,7 +5,7 @@ internal sealed class WidgetSpec
 {
     public Guid Id { get; set; } = Guid.NewGuid();
 
-    /// <summary>"clock" or "memo".</summary>
+    /// <summary>The provider id: built-in "clock"/"memo", or a plugin's <c>IWidgetProvider.Id</c>.</summary>
     public string Type { get; set; } = "clock";
 
     public int X { get; set; }
@@ -13,6 +13,6 @@ internal sealed class WidgetSpec
     public int Width { get; set; }
     public int Height { get; set; }
 
-    /// <summary>Memo text; unused by other types.</summary>
+    /// <summary>The widget's own settings (<c>IWidgetContext.Settings</c>). Named Text for compatibility with early layouts.</summary>
     public string Text { get; set; } = "";
 }

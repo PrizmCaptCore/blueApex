@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Sample BlueApex widget plugin. Build, then copy WeatherWidget.dll to
+       %AppData%\BlueApex\widgets\WeatherWidget\ and restart BlueApex. -->
+  <PropertyGroup>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Private=false: do not copy BlueApex.Sdk.dll next to the plugin; the host already has it loaded. -->
+    <ProjectReference Include="..\..\src\BlueApex.Sdk\BlueApex.Sdk.csproj" Private="false" />
+  </ItemGroup>
+
+</Project>
