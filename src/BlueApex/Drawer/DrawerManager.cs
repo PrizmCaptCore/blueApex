@@ -171,6 +171,11 @@ internal sealed class DrawerManager : IDisposable
 
     public string BackupNow() => BackupStore.Save(_icons.GetIcons());
 
+    /// <summary>Home-screen widgets; the host edits this list and calls <see cref="SaveLayout"/>.</summary>
+    public List<Widgets.WidgetSpec> Widgets => _file.Widgets;
+
+    public void SaveLayout() => Save();
+
     /// <summary>Saved drawer-button position, or null for the default spot.</summary>
     public (int X, int Y)? ButtonPosition
     {

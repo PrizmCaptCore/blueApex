@@ -29,6 +29,9 @@ internal sealed class LayoutFile
 
     public int? ButtonX { get; set; }
     public int? ButtonY { get; set; }
+
+    /// <summary>Widgets on the home screen.</summary>
+    public List<Widgets.WidgetSpec> Widgets { get; set; } = new();
 }
 
 /// <summary>Reads and writes %AppData%\BlueApex\layout.json.</summary>
@@ -44,11 +47,28 @@ internal static class LayoutStore
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping, // keep Korean titles readable in the file
     };
 
+    /// <summary>Set when the last <see cref="Load"/> found an unreadable file and set it aside.</summary>
+    public static string? LastLoadError { get; private set; }
+
     public static LayoutFile Load()
     {
+        LastLoadError = null;
         if (!File.Exists(FilePath))
             return new LayoutFile();
-        return JsonSerializer.Deserialize<LayoutFile>(File.ReadAllText(FilePath), Options) ?? new LayoutFile();
+        try
+        {
+            return JsonSerializer.Deserialize<LayoutFile>(File.ReadAllText(FilePath), Options) ?? new LayoutFile();
+        }
+        catch (JsonException ex)
+        {
+            // A hand-edited file with a typo must not keep the app from starting: keep it
+            // for repair under another name and start from defaults.
+            var aside = Path.Combine(Path.GetDirectoryName(FilePath)!, $"layout.broken-{DateTime.Now:yyyyMMdd-HHmmss}.json");
+            File.Move(FilePath, aside, overwrite: true);
+            LastLoadError = $"layout.json을 읽을 수 없어 {Path.GetFileName(aside)}(으)로 옮기고 기본값으로 시작했습니다.\n{ex.Message}";
+            Log.Write($"layout load failed: {ex.Message}; moved to {aside}");
+            return new LayoutFile();
+        }
     }
 
     public static void Save(LayoutFile layout)

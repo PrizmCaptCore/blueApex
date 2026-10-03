@@ -5,6 +5,7 @@ using System.Text;
 using System.Windows;
 using BlueApex.Desktop;
 using BlueApex.Drawer;
+using BlueApex.Widgets;
 using BlueApex.Zones;
 
 namespace BlueApex;
@@ -17,6 +18,8 @@ public partial class App : Application
     private DrawerWindow? _window;
     private Hotkey? _hotkey;
     private DesktopButton? _button;
+    private DesktopLayerInput? _layerInput;
+    private WidgetHost? _widgets;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -54,18 +57,35 @@ public partial class App : Application
             return;
         }
 
-        // The on-desktop button needs the desktop window layout; without it the hotkey and tray still work.
+        // The desktop layer (button, widgets) needs the desktop window layout; without it the hotkey and tray still work.
         try
         {
-            _button = new DesktopButton(DesktopHost.Find(), _drawer, ToggleDrawer, _drawer.PollNow);
+            var desktop = DesktopHost.Find();
+            _layerInput = new DesktopLayerInput(desktop, _drawer.PollNow);
+            _button = new DesktopButton(desktop, _drawer, ToggleDrawer);
+            _layerInput.Items.Add(_button);
+            _widgets = new WidgetHost(desktop, _layerInput, _drawer);
         }
         catch (Exception ex) when (ex is NotSupportedException or Win32Exception)
         {
-            Log.Write($"desktop button unavailable: {ex.Message}");
+            Log.Write($"desktop layer unavailable: {ex.Message}");
         }
 
-        // Log-off / shutdown: run the normal exit path so parked icons come back.
+        // Log-off / shutdown: run the normal exit path so hidden icons come back.
         SessionEnding += (_, _) => Shutdown();
+
+        // A bug must not take the desktop icons down with it: log, keep running, and if the
+        // process is going down anyway, unhide everything first.
+        DispatcherUnhandledException += (_, args) =>
+        {
+            Log.Write($"unhandled: {args.Exception}");
+            args.Handled = true;
+        };
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            Log.Write($"fatal: {args.ExceptionObject}");
+            try { _drawer?.UnhideAll(); } catch { /* best effort on the way down */ }
+        };
 
         var menu = new System.Windows.Forms.ContextMenuStrip();
         menu.Items.Add("서랍 열기", null, (_, _) => ToggleDrawer());
@@ -76,6 +96,13 @@ public partial class App : Application
                 "BlueApex", MessageBoxButton.OK, MessageBoxImage.Information);
         });
         menu.Items.Add("레이아웃 파일 열기", null, (_, _) => Process.Start("notepad.exe", LayoutStore.FilePath));
+        if (_widgets != null)
+        {
+            var add = new System.Windows.Forms.ToolStripMenuItem("위젯 추가");
+            foreach (var (type, label) in WidgetHost.Kinds)
+                add.DropDownItems.Add(label, null, (_, _) => _widgets.Add(type));
+            menu.Items.Add(add);
+        }
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
 
         var backups = new System.Windows.Forms.ToolStripMenuItem("아이콘 배치 백업/복원");
@@ -110,6 +137,8 @@ public partial class App : Application
         };
         _drawer.Notice += (title, message) => _trayIcon.ShowBalloonTip(3000, title, message, System.Windows.Forms.ToolTipIcon.Info);
 
+        if (LayoutStore.LastLoadError != null)
+            MessageBox.Show(LayoutStore.LastLoadError, "BlueApex", MessageBoxButton.OK, MessageBoxImage.Warning);
         if (DesktopCatalog.ExplorerShowsHiddenFiles())
             _trayIcon.ShowBalloonTip(6000, "숨김 파일 표시가 켜져 있습니다",
                 "탐색기 옵션에서 숨김 파일을 표시하는 동안에는 서랍에 넣은 아이콘이 바탕화면에 흐리게 남습니다.", System.Windows.Forms.ToolTipIcon.Warning);
@@ -188,6 +217,8 @@ public partial class App : Application
     {
         _trayIcon?.Dispose();
         _hotkey?.Dispose();
+        _layerInput?.Dispose();
+        _widgets?.Dispose();
         _button?.Dispose();
         _window?.Close();
         _drawer?.Dispose();

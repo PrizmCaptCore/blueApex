@@ -1,60 +1,41 @@
-using System.ComponentModel;
-using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Shapes;
-using System.Windows.Threading;
 using BlueApex.Desktop;
 
 namespace BlueApex.Drawer;
 
 /// <summary>
 /// The round "open the drawer" button on the desktop, for mouse- and touch-only
-/// use. It sits below the icons like the old zones did, so a low-level mouse hook
-/// turns a click on it into opening the drawer and a drag into moving it.
+/// use. Drawn on the desktop layer; <see cref="DesktopLayerInput"/> delivers its
+/// clicks and drags.
 /// </summary>
-internal sealed class DesktopButton : IDisposable
+internal sealed class DesktopButton : IDesktopLayerItem, IDisposable
 {
     private const double SizeDip = 56;
-    private const int DragThreshold = 10; // physical px
 
     private readonly DesktopHost _desktop;
     private readonly DrawerManager _drawer;
     private readonly Action _open;
-    private readonly Dispatcher _dispatcher;
     private readonly DesktopLayerWindow _window;
     private readonly int _size;
-    private readonly NativeMethods.LowLevelMouseProc _proc; // kept alive for the hook's lifetime
-    private readonly IntPtr _hook;
-
     private int _x, _y;
-    private bool _pressed, _dragging;
-    private NativeMethods.POINT _pressPoint;
-    private (int X, int Y) _pressOrigin;
 
-    private readonly Action _desktopMouseUp;
-
-    /// <param name="desktopMouseUp">Called (on the dispatcher) after any left button release over the desktop, i.e. after a drop.</param>
-    public DesktopButton(DesktopHost desktop, DrawerManager drawer, Action open, Action desktopMouseUp)
+    public DesktopButton(DesktopHost desktop, DrawerManager drawer, Action open)
     {
         _desktop = desktop;
         _drawer = drawer;
         _open = open;
-        _desktopMouseUp = desktopMouseUp;
-        _dispatcher = Dispatcher.CurrentDispatcher;
         var scale = desktop.Dpi / 96.0;
         _size = (int)Math.Round(SizeDip * scale);
 
         (_x, _y) = drawer.ButtonPosition ?? DefaultPosition(scale);
-        Clamp();
+        var (areaWidth, areaHeight) = desktop.IconAreaSize;
+        _x = Math.Clamp(_x, 0, Math.Max(0, areaWidth - _size));
+        _y = Math.Clamp(_y, 0, Math.Max(0, areaHeight - _size));
         _window = new DesktopLayerWindow(desktop, BuildFace(), _x, _y, _size, _size, 0.9, _size / 2);
-
-        _proc = HookCallback;
-        _hook = NativeMethods.SetWindowsHookEx(NativeMethods.WH_MOUSE_LL, _proc, NativeMethods.GetModuleHandle(null), 0);
-        if (_hook == IntPtr.Zero)
-            throw new Win32Exception(Marshal.GetLastWin32Error(), "마우스 훅을 설치하지 못했습니다.");
     }
 
     // Bottom centre, just above the taskbar, like a phone's home button.
@@ -63,13 +44,6 @@ internal sealed class DesktopButton : IDisposable
         var (areaWidth, _) = _desktop.IconAreaSize;
         var workBottom = (int)Math.Round(SystemParameters.WorkArea.Bottom * scale);
         return ((areaWidth - _size) / 2, workBottom - _size - (int)Math.Round(20 * scale));
-    }
-
-    private void Clamp()
-    {
-        var (areaWidth, areaHeight) = _desktop.IconAreaSize;
-        _x = Math.Clamp(_x, 0, Math.Max(0, areaWidth - _size));
-        _y = Math.Clamp(_y, 0, Math.Max(0, areaHeight - _size));
     }
 
     // A dark disc with a 3x3 grid of dots: the usual "all apps" glyph.
@@ -88,85 +62,28 @@ internal sealed class DesktopButton : IDisposable
         };
     }
 
-    public bool Visible
+    public NativeMethods.RECT Bounds => new() { Left = _x, Top = _y, Right = _x + _size, Bottom = _y + _size };
+    public bool Movable => true;
+
+    public void MoveTo(int x, int y)
     {
-        set => _window.Visible = value;
+        _x = x;
+        _y = y;
+        _window.SetBounds(_x, _y, _size, _size);
     }
 
-    private bool IsDesktopAt(NativeMethods.POINT screen) =>
-        NativeMethods.GetAncestor(NativeMethods.WindowFromPoint(screen), NativeMethods.GA_ROOT) == _desktop.Progman;
+    public void Moved() => _drawer.ButtonPosition = (_x, _y);
+    public void Click() => _open();
 
-    private bool Contains(NativeMethods.POINT screen)
-    {
-        if (!IsDesktopAt(screen))
-            return false; // another window is in front of the desktop here
-        var p = _desktop.ScreenToIcon(screen);
-        return p.X >= _x && p.X < _x + _size && p.Y >= _y && p.Y < _y + _size;
-    }
-
-    // Only hit-testing and state here; see ZoneMouseInteraction for why nothing heavier may run in a hook.
-    private IntPtr HookCallback(int code, IntPtr wParam, IntPtr lParam)
-    {
-        try
-        {
-            if (code >= 0)
+    public void RightClick(int screenX, int screenY) =>
+        DesktopPopupMenu.Show(screenX, screenY,
+            ("서랍 열기", _open),
+            ("버튼 위치 초기화", () =>
             {
-                var message = (uint)wParam;
-                var point = Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam).Point;
+                var (x, y) = DefaultPosition(_desktop.Dpi / 96.0);
+                MoveTo(x, y);
+                _drawer.ButtonPosition = null;
+            }));
 
-                if (!_pressed)
-                {
-                    if (message == NativeMethods.WM_LBUTTONDOWN && Contains(point))
-                    {
-                        _pressed = true;
-                        _dragging = false;
-                        _pressPoint = point;
-                        _pressOrigin = (_x, _y);
-                        return 1; // swallowed: explorer never sees it
-                    }
-                    if (message == NativeMethods.WM_LBUTTONUP && IsDesktopAt(point))
-                        _dispatcher.BeginInvoke(_desktopMouseUp); // a drop on the desktop, most likely
-                }
-                else if (message == NativeMethods.WM_MOUSEMOVE)
-                {
-                    var dx = point.X - _pressPoint.X;
-                    var dy = point.Y - _pressPoint.Y;
-                    if (_dragging || Math.Abs(dx) >= DragThreshold || Math.Abs(dy) >= DragThreshold)
-                    {
-                        _dragging = true;
-                        _x = _pressOrigin.X + dx;
-                        _y = _pressOrigin.Y + dy;
-                        Clamp();
-                        _window.SetBounds(_x, _y, _size, _size);
-                    }
-                }
-                else if (message == NativeMethods.WM_LBUTTONUP)
-                {
-                    _pressed = false;
-                    if (_dragging)
-                    {
-                        _dragging = false;
-                        _dispatcher.BeginInvoke(() => _drawer.ButtonPosition = (_x, _y));
-                    }
-                    else
-                    {
-                        _dispatcher.BeginInvoke(_open);
-                    }
-                    return 1;
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Write($"button hook error: {ex}");
-            _pressed = false;
-        }
-        return NativeMethods.CallNextHookEx(_hook, code, wParam, lParam);
-    }
-
-    public void Dispose()
-    {
-        NativeMethods.UnhookWindowsHookEx(_hook);
-        _window.Dispose();
-    }
+    public void Dispose() => _window.Dispose();
 }
