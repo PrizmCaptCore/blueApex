@@ -51,6 +51,7 @@ internal sealed class DrawerManager : IDisposable
         EnsureDefaultZone();
         Reconcile();
         Save();
+        if (_file.ShowApps) RescanApps();
 
         _poll = new DispatcherTimer(DispatcherPriority.Background) { Interval = PollInterval };
         _poll.Tick += (_, _) => Poll();
@@ -178,6 +179,63 @@ internal sealed class DrawerManager : IDisposable
     }
 
     public string BackupNow() => BackupStore.Save(_icons.GetIcons());
+
+    // --- installed apps ---
+
+    private static readonly TimeSpan AppRescanInterval = TimeSpan.FromMinutes(10);
+    private List<DesktopIcon> _apps = new();
+    private DateTime _appsScanned = DateTime.MinValue;
+    private bool _appsScanning;
+
+    /// <summary>Every installed app, by name. Empty until the first background scan has finished.</summary>
+    public IReadOnlyList<DesktopIcon> Apps
+    {
+        get
+        {
+            if (!_appsScanning && DateTime.UtcNow - _appsScanned > AppRescanInterval)
+                RescanApps();
+            return _apps;
+        }
+    }
+
+    public bool ShowApps
+    {
+        get => _file.ShowApps;
+        set
+        {
+            _file.ShowApps = value;
+            Save();
+            Changed?.Invoke();
+        }
+    }
+
+    // Enumerating the Applications folder takes ~0.5 s, so it runs off the UI thread.
+    private void RescanApps()
+    {
+        _appsScanning = true;
+        var dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+        _ = Task.Run(() =>
+        {
+            List<DesktopIcon> apps;
+            try
+            {
+                apps = AppCatalog.Scan();
+            }
+            catch (Exception ex) when (ex is COMException or InvalidCastException)
+            {
+                Log.Write($"app scan failed: {ex.Message}");
+                apps = _apps;
+            }
+            dispatcher.BeginInvoke(() =>
+            {
+                var changed = apps.Count != _apps.Count;
+                _apps = apps;
+                _appsScanned = DateTime.UtcNow;
+                _appsScanning = false;
+                if (changed) Changed?.Invoke();
+            });
+        });
+    }
 
     /// <summary>Rows of a portal folder shown per page in the drawer (1..50).</summary>
     public int PortalRows
@@ -341,6 +399,12 @@ internal sealed class DrawerManager : IDisposable
 
     public static void Launch(DesktopIcon icon)
     {
+        if (icon.IsApp)
+        {
+            // The same route the Start menu uses; works for Store apps and classic programs alike.
+            Process.Start("explorer.exe", AppCatalog.ParsingName(icon.Id));
+            return;
+        }
         var file = icon.IsShellItem ? "shell:" + icon.Id : icon.Id;
         Process.Start(new ProcessStartInfo(file) { UseShellExecute = true });
     }

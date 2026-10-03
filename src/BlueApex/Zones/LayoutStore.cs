@@ -30,8 +30,11 @@ internal sealed class LayoutFile
     public int? ButtonX { get; set; }
     public int? ButtonY { get; set; }
 
-    /// <summary>How many rows of a portal folder the drawer shows before "더 보기" is needed.</summary>
+    /// <summary>How many rows of a portal folder (or the all-apps card) the drawer shows before "더 보기" is needed.</summary>
     public int PortalRows { get; set; } = 4;
+
+    /// <summary>Whether the drawer ends with a card listing every installed app.</summary>
+    public bool ShowApps { get; set; } = true;
 
     /// <summary>Widgets on the home screen.</summary>
     public List<Widgets.WidgetSpec> Widgets { get; set; } = new();

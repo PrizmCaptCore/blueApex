@@ -264,8 +264,11 @@ internal sealed class DrawerWindow : Window
         _tileById.Clear();
         _selected.IntersectWith(_drawer.Icons.Select(i => i.Id)); // forget icons that are gone
         _generation++; // thumbnails still decoding for the old tiles are dropped when they arrive
+        _lazy.Clear();
         foreach (var zone in _drawer.Zones)
             _cards.Children.Add(BuildCard(_drawer.IsDefault(zone) ? zone.Title + "  (기본)" : zone.Title, _drawer.IconsOf(zone), zone));
+        if (_drawer.ShowApps)
+            _cards.Children.Add(BuildAppsCard());
         _cards.Children.Add(BuildAddCard());
         ApplyFilter();
     }
@@ -386,23 +389,102 @@ internal sealed class DrawerWindow : Window
 
         // A portal can hold hundreds of files; only the first page is built, the rest
         // on demand, so opening the drawer stays instant.
-        var pending = new Queue<DesktopIcon>(icons);
-        var pageSize = zone.IsPortal ? _drawer.PortalRows * TilesPerRow : int.MaxValue;
-        Button? more = null;
-        void AddPage()
+        AddTiles(body, tiles, icons, zone.IsPortal ? _drawer.PortalRows * TilesPerRow : int.MaxValue);
+        return card;
+    }
+
+    /// <summary>The card listing every installed app (from the shell's Applications folder), paged like a portal.</summary>
+    private Border BuildAppsCard()
+    {
+        var apps = _drawer.Apps;
+        var header = new TextBlock
         {
-            for (var n = 0; n < pageSize && pending.Count > 0; n++)
+            Text = apps.Count > 0 ? $"모든 앱  ({apps.Count})" : "모든 앱  (불러오는 중...)",
+            Foreground = Brushes.White,
+            FontSize = 16,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(6, 0, 6, 10),
+        };
+        var tiles = new WrapPanel();
+        var body = new StackPanel { Children = { header, tiles } };
+        var card = new Border
+        {
+            Width = 440,
+            MinHeight = 140,
+            Margin = new Thickness(12),
+            Padding = new Thickness(12),
+            CornerRadius = new CornerRadius(14),
+            Background = new SolidColorBrush(Color.FromArgb(0xC8, 0x1E, 0x24, 0x2E)),
+            Child = body,
+        };
+        var menu = new ContextMenu();
+        menu.Items.Add(MenuItem("설치된 앱 카드 숨기기 (트레이 메뉴에서 다시 켤 수 있음)", () => _drawer.ShowApps = false));
+        card.ContextMenu = menu;
+        AddTiles(body, tiles, apps, _drawer.PortalRows * TilesPerRow);
+        return card;
+    }
+
+    // Tiles are built a page at a time ("더 보기" adds the next page); a search builds
+    // whatever matches straight away, so nothing is missed just because it was unbuilt.
+    private readonly List<LazyTiles> _lazy = new();
+
+    private void AddTiles(StackPanel body, WrapPanel tiles, IEnumerable<DesktopIcon> icons, int pageSize)
+    {
+        var lazy = new LazyTiles(this, body, tiles, icons, pageSize);
+        _lazy.Add(lazy);
+        lazy.AddPage();
+    }
+
+    private sealed class LazyTiles
+    {
+        private readonly DrawerWindow _owner;
+        private readonly StackPanel _body;
+        private readonly WrapPanel _tiles;
+        private readonly List<DesktopIcon> _pending;
+        private readonly int _pageSize;
+        private Button? _more;
+
+        public LazyTiles(DrawerWindow owner, StackPanel body, WrapPanel tiles, IEnumerable<DesktopIcon> icons, int pageSize)
+        {
+            _owner = owner;
+            _body = body;
+            _tiles = tiles;
+            _pending = icons.ToList();
+            _pageSize = pageSize;
+        }
+
+        public void AddPage()
+        {
+            var page = _pending.Take(_pageSize).ToList();
+            _pending.RemoveRange(0, page.Count);
+            foreach (var icon in page) Build(icon);
+            UpdateMoreButton();
+        }
+
+        /// <summary>Builds every unbuilt tile whose name matches, so searching reaches past the current page.</summary>
+        public void BuildMatching(string query)
+        {
+            var matches = _pending.Where(i => i.Name.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (matches.Count == 0) return;
+            _pending.RemoveAll(matches.Contains);
+            foreach (var icon in matches) Build(icon);
+            UpdateMoreButton();
+        }
+
+        private void Build(DesktopIcon icon)
+        {
+            var tile = _owner.BuildTile(icon);
+            _tiles.Children.Add(tile);
+            _owner._tiles.Add((tile, icon, _tiles));
+        }
+
+        private void UpdateMoreButton()
+        {
+            if (_more != null) _body.Children.Remove(_more);
+            if (_pending.Count == 0) return;
+            _more = new Button
             {
-                var icon = pending.Dequeue();
-                var tile = BuildTile(icon);
-                tiles.Children.Add(tile);
-                _tiles.Add((tile, icon, tiles));
-            }
-            if (more != null) body.Children.Remove(more);
-            if (pending.Count == 0) return;
-            more = new Button
-            {
-                Content = $"더 보기 (남은 {pending.Count}개)",
+                Content = $"더 보기 (남은 {_pending.Count}개)",
                 Margin = new Thickness(6, 8, 6, 0),
                 Padding = new Thickness(12, 6, 12, 6),
                 HorizontalAlignment = HorizontalAlignment.Left,
@@ -411,11 +493,9 @@ internal sealed class DrawerWindow : Window
                 BorderThickness = new Thickness(0),
                 Cursor = Cursors.Hand,
             };
-            more.Click += (_, _) => AddPage();
-            body.Children.Add(more);
+            _more.Click += (_, _) => AddPage();
+            _body.Children.Add(_more);
         }
-        AddPage();
-        return card;
     }
 
     // Card width 440 minus padding, tiles 100 wide plus margins: four per row.
@@ -463,7 +543,16 @@ internal sealed class DrawerWindow : Window
     {
         var portalEntry = !_drawer.IsDesktopItem(icon.Id);
         var image = new Image { Width = IconPx, Height = IconPx, Margin = new Thickness(0, 6, 0, 4) };
-        if (portalEntry)
+        if (icon.IsApp)
+        {
+            // App icons can be slow for Store apps; fetch them off the UI thread like thumbnails.
+            var generation = _generation;
+            image.Source = _iconLoader.GetAsync(icon.Id, IconPx, false, Dispatcher, ready =>
+            {
+                if (generation == _generation) image.Source = ready;
+            });
+        }
+        else if (portalEntry)
         {
             // File-type icon now (cheap); the thumbnail replaces it when a worker has decoded it.
             var generation = _generation;
@@ -584,6 +673,11 @@ internal sealed class DrawerWindow : Window
         var label = many ? $"선택한 {ids.Count}개" : "";
         var menu = new ContextMenu();
 
+        if (icon.IsApp)
+        {
+            menu.Items.Add(MenuItem("열기", () => Launch(icon)));
+            return menu;
+        }
         if (!_drawer.IsDesktopItem(icon.Id))
         {
             // A file seen through a portal: open, locate, delete. No pinning or zones.
@@ -728,6 +822,8 @@ internal sealed class DrawerWindow : Window
     private void ApplyFilter()
     {
         var query = _search.Text.Trim();
+        if (query.Length > 0)
+            foreach (var lazy in _lazy) lazy.BuildMatching(query);
         foreach (var (tile, icon, _) in _tiles)
             tile.Visibility = query.Length == 0 || icon.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
                 ? Visibility.Visible

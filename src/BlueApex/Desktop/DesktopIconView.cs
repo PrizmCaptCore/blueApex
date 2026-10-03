@@ -10,6 +10,9 @@ internal sealed record DesktopIcon(string Id, string Name, int X, int Y, bool Se
 {
     /// <summary>Shell items like the Recycle Bin: not files, so they cannot be hidden by attribute.</summary>
     public bool IsShellItem => Id.StartsWith("::", StringComparison.Ordinal);
+
+    /// <summary>An installed app from the shell's Applications folder (see <see cref="AppCatalog"/>), not a desktop item.</summary>
+    public bool IsApp => AppCatalog.IsAppId(Id);
 }
 
 /// <summary>Size of one icon cell (explorer's icon spacing), physical pixels.</summary>

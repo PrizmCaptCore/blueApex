@@ -19,6 +19,7 @@ src/BlueApex/
 
   Desktop/               Windows 바탕화면과 직접 맞닿는 층
     DesktopCatalog.cs    ★ 바탕화면 폴더 두 곳을 읽고, 숨김 속성을 켜고 끄고, 공용 바탕화면 권한을 요청.
+    AppCatalog.cs        설치된 앱 전체 목록(셸 Applications 폴더). id는 "app:..." 형식, 실행은 explorer shell:AppsFolder\id.
     DesktopIconView.cs   탐색기의 아이콘 뷰(COM). 셸 항목 목록, 위치 읽기/쓰기, 선택 상태.
     ShellInterop.cs      위 COM 인터페이스들의 C# 선언(vtable 순서). 손대면 안 되는 파일.
     DesktopHost.cs       탐색기의 바탕화면 창 계층(Progman/DefView) 찾기 + Win32 함수 선언(NativeMethods).
@@ -81,6 +82,10 @@ OnExit
 `Refresh()`로 목록에 먼저 넣은 뒤(폴링이 "새 항목"으로 오해하지 않도록) 구역에 추가하고 숨긴다.
 포털은 `Zone.PortalPath`가 있는 구역이다. `IconsOf(zone)`가 멤버 대신 `DesktopCatalog.EnumerateFolder(path)`를 돌려주고,
 서랍은 `IsDesktopItem(id)`가 false인 타일(포털 파일)에는 끌기·꺼내기·구역 이동을 주지 않는다. 포털은 규칙·기본 구역 대상에서도 빠진다(`RuleZones`).
+
+**설치된 앱 카드** — `DrawerManager.Apps`는 `AppCatalog.Scan()`(약 0.5초)을 백그라운드에서 돌려 채운다. 서랍은 `BuildAppsCard`로
+카드를 만들고, 포털과 같은 `LazyTiles`로 한 페이지씩 타일을 만든다. 검색어가 있으면 `LazyTiles.BuildMatching`이 아직 안 만든 타일 중
+맞는 것을 즉시 만든다. 앱 타일은 `DesktopIcon.IsApp`으로 구분되어 실행만 된다.
 
 **위젯** — `WidgetHost`가 `layout.json`의 `Widgets`마다 `WidgetItem`을 만든다. `WidgetItem`은
 `provider.Create(context)`로 플러그인 위젯을 얻고, 그 `View`를 `DesktopLayerWindow`에 넣고, 자신을 `DesktopLayerInput.Items`에 등록한다.

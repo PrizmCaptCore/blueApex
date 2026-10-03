@@ -63,7 +63,8 @@ internal sealed class IconLoader
         try
         {
             var iid = typeof(IShellItemImageFactory).GUID;
-            if (SHCreateItemFromParsingName(id, IntPtr.Zero, ref iid, out var factory) < 0)
+            var parsingName = BlueApex.Desktop.AppCatalog.IsAppId(id) ? BlueApex.Desktop.AppCatalog.ParsingName(id) : id;
+            if (SHCreateItemFromParsingName(parsingName, IntPtr.Zero, ref iid, out var factory) < 0)
                 return null;
             var size = new SIZE { cx = sizePx, cy = sizePx };
             // Without ICONONLY the shell returns a thumbnail when it has one and the icon otherwise.

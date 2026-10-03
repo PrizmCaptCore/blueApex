@@ -110,6 +110,11 @@ public partial class App : Application
         FillBackupMenu(backups);
         menu.Items.Add(backups);
 
+        var showApps = new System.Windows.Forms.ToolStripMenuItem("서랍에 설치된 앱 전부 표시") { CheckOnClick = true, Checked = _drawer.ShowApps };
+        showApps.CheckedChanged += (_, _) => _drawer.ShowApps = showApps.Checked;
+        menu.Opening += (_, _) => showApps.Checked = _drawer.ShowApps;
+        menu.Items.Add(showApps);
+
         var autostart = new System.Windows.Forms.ToolStripMenuItem("시작 시 자동 실행") { CheckOnClick = true, Checked = Autostart.IsEnabled };
         autostart.CheckedChanged += (_, _) => Autostart.Set(autostart.Checked);
         menu.Items.Add(autostart);
