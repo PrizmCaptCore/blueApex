@@ -30,6 +30,9 @@ internal sealed class LayoutFile
     public int? ButtonX { get; set; }
     public int? ButtonY { get; set; }
 
+    /// <summary>How many rows of a portal folder the drawer shows before "더 보기" is needed.</summary>
+    public int PortalRows { get; set; } = 4;
+
     /// <summary>Widgets on the home screen.</summary>
     public List<Widgets.WidgetSpec> Widgets { get; set; } = new();
 }

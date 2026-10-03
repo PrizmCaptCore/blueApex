@@ -179,6 +179,18 @@ internal sealed class DrawerManager : IDisposable
 
     public string BackupNow() => BackupStore.Save(_icons.GetIcons());
 
+    /// <summary>Rows of a portal folder shown per page in the drawer (1..50).</summary>
+    public int PortalRows
+    {
+        get => Math.Clamp(_file.PortalRows, 1, 50);
+        set
+        {
+            _file.PortalRows = Math.Clamp(value, 1, 50);
+            Save();
+            Changed?.Invoke();
+        }
+    }
+
     /// <summary>Home-screen widgets; the host edits this list and calls <see cref="SaveLayout"/>.</summary>
     public List<Widgets.WidgetSpec> Widgets => _file.Widgets;
 

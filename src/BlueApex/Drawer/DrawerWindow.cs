@@ -340,6 +340,12 @@ internal sealed class DrawerWindow : Window
                 var folder = PickFolder(zone.PortalPath);
                 if (folder != null) _drawer.SetPortal(zone, folder);
             }));
+            menu.Items.Add(MenuItem($"한 번에 보일 줄 수... (현재 {_drawer.PortalRows}줄, 모든 포털)", () =>
+            {
+                var text = ZoneMenu.AskText("포털 표시 줄 수", _drawer.PortalRows.ToString(),
+                    "서랍을 열 때 포털 폴더를 몇 줄까지 보여 줄지 (한 줄 4개). 나머지는 \"더 보기\"로 봅니다. 1~50.", multiline: false);
+                if (int.TryParse(text?.Trim(), out var rows)) _drawer.PortalRows = rows;
+            }));
             menu.Items.Add(MenuItem("포털 해제 (빈 구역으로)", () => _drawer.SetPortal(zone, null)));
             menu.Items.Add(new Separator());
             menu.Items.Add(MenuItem("구역 삭제", () =>
@@ -381,10 +387,11 @@ internal sealed class DrawerWindow : Window
         // A portal can hold hundreds of files; only the first page is built, the rest
         // on demand, so opening the drawer stays instant.
         var pending = new Queue<DesktopIcon>(icons);
+        var pageSize = zone.IsPortal ? _drawer.PortalRows * TilesPerRow : int.MaxValue;
         Button? more = null;
         void AddPage()
         {
-            for (var n = 0; n < PortalPageSize && pending.Count > 0; n++)
+            for (var n = 0; n < pageSize && pending.Count > 0; n++)
             {
                 var icon = pending.Dequeue();
                 var tile = BuildTile(icon);
@@ -411,7 +418,8 @@ internal sealed class DrawerWindow : Window
         return card;
     }
 
-    private const int PortalPageSize = 60;
+    // Card width 440 minus padding, tiles 100 wide plus margins: four per row.
+    private const int TilesPerRow = 4;
 
     // --- selection ---
 
