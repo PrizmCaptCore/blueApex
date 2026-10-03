@@ -9,6 +9,11 @@ src/BlueApex/
   App.xaml.cs            시작·종료, 트레이 메뉴. 모든 부품을 여기서 조립한다.
   Log.cs                 log.txt에 한 줄 쓰기.
   Autostart.cs           로그인 시 자동 실행(레지스트리 Run 키).
+  Updater.cs             GitHub Releases에서 새 버전 확인, 설치 파일 받아서 조용히 실행 (docs/release.md).
+
+build/
+  publish.ps1            self-contained 배포 빌드 + 인스톨러 생성. 버전은 csproj의 <Version>.
+  BlueApex.iss           Inno Setup 스크립트: 실행 중인 앱 --exit, WebView2 런타임, icacls, 제거 시 설정 삭제 여부.
 
   Drawer/                "홈 화면 + 서랍" 기능의 중심
     DrawerManager.cs     ★ 상태의 주인. 어떤 아이콘이 꺼내져 있고 숨겨져 있는지, 구역·규칙, 저장, 1초 폴링.

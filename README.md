@@ -9,13 +9,18 @@ Windows 11 바탕화면을 안드로이드 홈 화면처럼 쓰게 해 주는 �
 
 아이콘을 옮기거나 지우지 않는다. 숨김 속성만 쓰고, 끄면 전부 원래대로 돌아온다.
 
-## 실행
+## 설치
+
+[Releases](https://github.com/PrizmBlueCaptCore/BlueApex/releases)에서 `BlueApex-Setup-<버전>.exe`를 받아 실행한다. Windows 11 (24H2 이후 권장).
+코드 서명이 없어 처음에 SmartScreen 경고가 뜬다: "추가 정보" → "실행". 새 버전이 나오면 앱이 트레이로 알려 주고, 승인하면 받아서 설치한다.
+
+## 소스로 실행
 
 ```sh
 dotnet run --project src/BlueApex
 ```
 
-.NET 9 SDK, Windows 11 (24H2 이후 권장).
+.NET 9 SDK. 배포 파일 만들기는 [docs/release.md](docs/release.md).
 
 ## 더 읽기
 

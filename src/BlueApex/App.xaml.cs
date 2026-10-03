@@ -14,6 +14,41 @@ public partial class App : Application
 {
     private Mutex? _instanceMutex;
     private System.Windows.Forms.NotifyIcon? _trayIcon;
+    private readonly Updater _updater = new();
+    private System.Windows.Threading.DispatcherTimer? _updateTimer;
+
+    private async void CheckUpdates(bool manual)
+    {
+        if (!manual && !_drawer!.CheckUpdates) return;
+        try
+        {
+            var release = await _updater.CheckAsync();
+            if (manual && release == null)
+                MessageBox.Show($"최신 버전입니다. (현재 {Updater.Current.ToString(3)})", "BlueApex", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException or System.Text.Json.JsonException or KeyNotFoundException)
+        {
+            Log.Write($"update check failed: {ex.Message}");
+            if (manual) MessageBox.Show("업데이트를 확인하지 못했습니다.\n" + ex.Message, "BlueApex", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private async void InstallUpdate()
+    {
+        if (_updater.Available is not { } release) return;
+        if (MessageBox.Show($"BlueApex {release.Tag}을(를) 설치할까요?\n앱이 종료되고(숨긴 아이콘은 복원됨) 설치 후 새 버전이 다시 켜집니다.",
+                "업데이트", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        try
+        {
+            await _updater.InstallAsync(release);
+            Shutdown(); // the installer is waiting for us to let go of the files
+        }
+        catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException or System.IO.IOException or Win32Exception)
+        {
+            Log.Write($"update install failed: {ex}");
+            MessageBox.Show("업데이트 파일을 받지 못했습니다.\n" + ex.Message + $"\n\n직접 받기: {release.PageUrl}", "BlueApex", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
     private DrawerManager? _drawer;
     private DrawerWindow? _window;
     private Hotkey? _hotkey;
@@ -123,6 +158,23 @@ public partial class App : Application
         autostart.CheckedChanged += (_, _) => Autostart.Set(autostart.Checked);
         menu.Items.Add(autostart);
 
+        // Updates: a daily check (switchable) plus a manual one; "설치" appears once a newer release is known.
+        var install = new System.Windows.Forms.ToolStripMenuItem("업데이트 설치") { Visible = false };
+        install.Click += (_, _) => InstallUpdate();
+        var check = new System.Windows.Forms.ToolStripMenuItem($"업데이트 확인 (현재 {Updater.Current.ToString(3)})");
+        check.Click += (_, _) => CheckUpdates(manual: true);
+        var autoCheck = new System.Windows.Forms.ToolStripMenuItem("업데이트 자동 확인 (하루 한 번)") { CheckOnClick = true, Checked = _drawer.CheckUpdates };
+        autoCheck.CheckedChanged += (_, _) => _drawer.CheckUpdates = autoCheck.Checked;
+        menu.Opening += (_, _) =>
+        {
+            autoCheck.Checked = _drawer.CheckUpdates;
+            install.Visible = _updater.Available != null;
+            if (_updater.Available is { } r) install.Text = $"업데이트 설치 ({r.Tag})";
+        };
+        menu.Items.Add(install);
+        menu.Items.Add(check);
+        menu.Items.Add(autoCheck);
+
         menu.Items.Add("공용 바탕화면 권한 설정 (관리자 권한)", null, (_, _) => GrantPublicDesktopAccess());
         menu.Items.Add("숨긴 아이콘 모두 보이기", null, (_, _) =>
         {
@@ -145,6 +197,12 @@ public partial class App : Application
             if (args.Button == System.Windows.Forms.MouseButtons.Left) ToggleDrawer();
         };
         _drawer.Notice += (title, message) => _trayIcon.ShowBalloonTip(3000, title, message, System.Windows.Forms.ToolTipIcon.Info);
+        _updater.Found += r => _trayIcon.ShowBalloonTip(6000, $"BlueApex {r.Tag} 업데이트",
+            "트레이 메뉴의 '업데이트 설치'를 누르면 받아서 설치합니다. (앱이 잠시 꺼졌다가 새 버전으로 켜집니다)", System.Windows.Forms.ToolTipIcon.Info);
+        _updateTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromHours(24) };
+        _updateTimer.Tick += (_, _) => CheckUpdates(manual: false);
+        _updateTimer.Start();
+        _ = Task.Delay(TimeSpan.FromSeconds(30)).ContinueWith(_ => Dispatcher.BeginInvoke(() => CheckUpdates(manual: false)));
 
         if (LayoutStore.LastLoadError != null)
             MessageBox.Show(LayoutStore.LastLoadError, "BlueApex", MessageBoxButton.OK, MessageBoxImage.Warning);

@@ -8,6 +8,17 @@ self-contained, redistributes the following.
 Copyright (c) .NET Foundation and Contributors. MIT License.
 https://github.com/dotnet/runtime · https://github.com/dotnet/wpf · https://github.com/dotnet/winforms
 
+## Microsoft Edge WebView2 SDK
+
+`Microsoft.Web.WebView2.*.dll` — Copyright (c) Microsoft Corporation. Distributed under the terms of the
+Microsoft.Web.WebView2 NuGet package license (https://www.nuget.org/packages/Microsoft.Web.WebView2).
+The WebView2 *runtime* is not redistributed; the installer downloads Microsoft's bootstrapper when a PC lacks it.
+
+## Inno Setup (build tool only)
+
+The installer is built with Inno Setup (Copyright (c) Jordan Russell, Inno Setup License). Its files are not
+part of BlueApex; only the generated setup program is distributed.
+
 ## C#/WinRT and the Windows SDK .NET projection (samples/MediaWidget)
 
 `WinRT.Runtime.dll` — Copyright (c) Microsoft Corporation. MIT License. https://github.com/microsoft/CsWinRT

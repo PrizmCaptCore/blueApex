@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("MediaWidget")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+2adbf8d05ffa5caad0b471bdf37e531dae331751")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+10e740c35292e45179811384e6c79efbacdb98ca")]
 [assembly: System.Reflection.AssemblyProductAttribute("MediaWidget")]
 [assembly: System.Reflection.AssemblyTitleAttribute("MediaWidget")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

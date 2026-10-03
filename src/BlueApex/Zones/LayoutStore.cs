@@ -58,6 +58,9 @@ internal sealed class LayoutFile
     /// <summary>Whether the user signed in to Steam (in the embedded browser) to list the games they own.</summary>
     public bool SteamLinked { get; set; }
 
+    /// <summary>Look for a newer release on GitHub once a day and say so in the tray.</summary>
+    public bool CheckUpdates { get; set; } = true;
+
     /// <summary>Widgets on the home screen.</summary>
     public List<Widgets.WidgetSpec> Widgets { get; set; } = new();
 }

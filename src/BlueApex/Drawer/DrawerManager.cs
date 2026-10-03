@@ -352,6 +352,12 @@ internal sealed class DrawerManager : IDisposable
         set { _file.ShowGames = value; Save(); Changed?.Invoke(); }
     }
 
+    public bool CheckUpdates
+    {
+        get => _file.CheckUpdates;
+        set { _file.CheckUpdates = value; Save(); }
+    }
+
     // --- folded cards (the window applies the fold itself; this only remembers it) ---
 
     public void SetRolled(Zone zone, bool rolled)

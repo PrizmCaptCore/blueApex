@@ -152,7 +152,7 @@
     "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
   },
   "project": {
-    "version": "1.0.0",
+    "version": "0.1.0",
     "restore": {
       "projectUniqueName": "E:\\windows_project\\desktop_folder_cleaner\\src\\BlueApex\\BlueApex.csproj",
       "projectName": "BlueApex",
