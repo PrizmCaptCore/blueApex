@@ -7,6 +7,11 @@
 - Inno Setup 6: `winget install JRSoftware.InnoSetup`
 - GitHub 저장소. 주소는 `src/BlueApex/Updater.cs`의 `Repo` 상수와 `build/BlueApex.iss`의 `AppPublisherURL`에 적혀 있다. 저장소 이름이 다르면 둘 다 고친다.
 
+## 아이콘
+
+`build\make-icon.ps1`이 파란 산봉우리 아이콘을 코드로 그려 `src\BlueApex\Assets\blueapex.ico`(앱·설치 파일·시작 메뉴)와
+`tray.ico`(트레이)를 만든다. 모양을 바꾸려면 스크립트의 `PeakPoints`·색을 고치고 다시 실행한다. 외부 이미지는 쓰지 않는다.
+
 ## 릴리스 절차
 
 1. `src/BlueApex/BlueApex.csproj`의 `<Version>`을 올린다 (예: 0.2.0).

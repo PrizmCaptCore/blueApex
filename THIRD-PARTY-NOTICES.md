@@ -32,5 +32,5 @@ Free for non-commercial use; attribution required. The sample widget shows the a
 
 ## Icons
 
-The tray icon is currently a stock Windows system icon (`SystemIcons.Application`); replace it with the
-project's own icon before public distribution.
+The app, installer and tray icons (a blue mountain peak) are drawn by `build/make-icon.ps1` with plain
+System.Drawing shapes; they are original to this project and covered by its MIT license.

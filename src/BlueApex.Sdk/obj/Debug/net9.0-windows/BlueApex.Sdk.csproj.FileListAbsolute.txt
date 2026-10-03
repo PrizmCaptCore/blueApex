@@ -11,3 +11,4 @@ E:\windows_project\desktop_folder_cleaner\src\BlueApex.Sdk\obj\Debug\net9.0-wind
 E:\windows_project\desktop_folder_cleaner\src\BlueApex.Sdk\obj\Debug\net9.0-windows\BlueApex.Sdk.xml
 E:\windows_project\desktop_folder_cleaner\src\BlueApex.Sdk\obj\Debug\net9.0-windows\BlueApex.Sdk.pdb
 E:\windows_project\desktop_folder_cleaner\src\BlueApex.Sdk\obj\Debug\net9.0-windows\ref\BlueApex.Sdk.dll
+E:\windows_project\desktop_folder_cleaner\src\BlueApex.Sdk\obj\Debug\net9.0-windows\BlueApex.Sdk.sourcelink.json

@@ -14,6 +14,7 @@ src/BlueApex/
 build/
   publish.ps1            self-contained 배포 빌드 + 인스톨러 생성. 버전은 csproj의 <Version>.
   BlueApex.iss           Inno Setup 스크립트: 실행 중인 앱 --exit, WebView2 런타임, icacls, 제거 시 설정 삭제 여부.
+  make-icon.ps1          아이콘(.ico) 생성. 결과는 src/BlueApex/Assets/.
 
   Drawer/                "홈 화면 + 서랍" 기능의 중심
     DrawerManager.cs     ★ 상태의 주인. 어떤 아이콘이 꺼내져 있고 숨겨져 있는지, 구역·규칙, 저장, 1초 폴링.

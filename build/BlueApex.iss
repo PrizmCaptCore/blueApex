@@ -38,6 +38,8 @@ SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayName=BlueApex
 LicenseFile={#AppDir}\LICENSE
+SetupIconFile=..\src\BlueApex\Assets\blueapex.ico
+UninstallDisplayIcon={app}\BlueApex.exe
 ; A silent update started by the app passes /LAUNCH=1 so it is restarted afterwards.
 
 [Languages]

@@ -17,6 +17,15 @@ public partial class App : Application
     private readonly Updater _updater = new();
     private System.Windows.Threading.DispatcherTimer? _updateTimer;
 
+    // Assets\tray.ico, embedded in the exe; the size matches the taskbar's DPI.
+    private static System.Drawing.Icon LoadTrayIcon()
+    {
+        var resource = GetResourceStream(new Uri("pack://application:,,,/Assets/tray.ico"));
+        if (resource == null) return System.Drawing.SystemIcons.Application;
+        using var stream = resource.Stream;
+        return new System.Drawing.Icon(stream, System.Windows.Forms.SystemInformation.SmallIconSize);
+    }
+
     private async void CheckUpdates(bool manual)
     {
         if (!manual && !_drawer!.CheckUpdates) return;
@@ -187,7 +196,7 @@ public partial class App : Application
 
         _trayIcon = new System.Windows.Forms.NotifyIcon
         {
-            Icon = System.Drawing.SystemIcons.Application,
+            Icon = LoadTrayIcon(),
             Text = $"BlueApex ({_drawer.Hotkey}: 서랍)",
             ContextMenuStrip = menu,
             Visible = true,
