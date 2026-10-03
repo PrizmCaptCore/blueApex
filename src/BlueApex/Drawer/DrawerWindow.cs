@@ -53,7 +53,13 @@ internal sealed class DrawerWindow : Window
             CaretBrush = Brushes.White,
             BorderBrush = new SolidColorBrush(Color.FromArgb(0x60, 0xFF, 0xFF, 0xFF)),
         };
-        _search.TextChanged += (_, _) => ApplyFilter();
+        _search.TextChanged += (_, _) =>
+        {
+            // Clearing the search rebuilds the cards so folded groups go back to their own state.
+            if (_search.Text.Trim().Length == 0 && _lastQuery.Length > 0) Refresh();
+            else ApplyFilter();
+            _lastQuery = _search.Text.Trim();
+        };
 
         _cards = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(24, 0, 24, 24) };
         var scroll = new ScrollViewer { Content = _cards, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
@@ -76,10 +82,18 @@ internal sealed class DrawerWindow : Window
             {
                 BuildDropTarget("바탕화면에 꺼내기", Color.FromRgb(0x2E, 0x7D, 0xD6), ids =>
                 {
-                    foreach (var id in ids) _drawer.Pin(id);
+                    foreach (var id in ids)
+                    {
+                        if (AppCatalog.IsAppId(id)) _drawer.PinApp(id); // an app gets a shortcut on the desktop
+                        else _drawer.Pin(id);
+                    }
                 }),
                 BuildDropTarget("휴지통으로", Color.FromRgb(0xC0, 0x39, 0x2B), ids =>
-                    ConfirmDelete(ids.Select(id => _drawer.Icons.FirstOrDefault(i => i.Id == id)).OfType<DesktopIcon>().Where(i => !i.IsShellItem).ToList())),
+                {
+                    // Apps are not files: dropping one here just takes it out of its zone.
+                    foreach (var id in ids.Where(AppCatalog.IsAppId)) _drawer.RemoveMember(id);
+                    ConfirmDelete(ids.Select(id => _drawer.Icons.FirstOrDefault(i => i.Id == id)).OfType<DesktopIcon>().Where(i => !i.IsShellItem).ToList());
+                }),
             },
         };
 
@@ -150,8 +164,13 @@ internal sealed class DrawerWindow : Window
         // (rename box, folder picker, confirmation); those return focus here afterwards.
         Deactivated += (_, _) => Dispatcher.BeginInvoke(() =>
         {
-            NativeMethods.GetWindowThreadProcessId(NativeMethods.GetForegroundWindow(), out var pid);
-            if (pid != Environment.ProcessId) Hide();
+            var foreground = NativeMethods.GetForegroundWindow();
+            NativeMethods.GetWindowThreadProcessId(foreground, out var pid);
+            if (pid == Environment.ProcessId) return;
+            var cls = new System.Text.StringBuilder(64);
+            NativeMethods.GetClassName(foreground, cls, cls.Capacity);
+            Log.Write($"drawer closed: focus went to {cls} (pid {pid})");
+            Hide();
         });
         PreviewKeyDown += OnKey;
     }
@@ -171,7 +190,8 @@ internal sealed class DrawerWindow : Window
     {
         for (var node = element; node != null; node = VisualTreeHelper.GetParent(node))
         {
-            if (node == _search || node == _dropBar || node is System.Windows.Controls.Primitives.ScrollBar || node is Button) return Hit.Control;
+            if (node == _search || node == _dropBar || node is System.Windows.Controls.Primitives.ScrollBar || node is Button || node is ComboBox) return Hit.Control;
+            if (node is FrameworkElement { Tag: "control" }) return Hit.Control; // selectors, group headers
             if (node is Border border)
             {
                 if (_tileById.ContainsValue(border)) return Hit.Tile;
@@ -265,6 +285,7 @@ internal sealed class DrawerWindow : Window
         _selected.IntersectWith(_drawer.Icons.Select(i => i.Id)); // forget icons that are gone
         _generation++; // thumbnails still decoding for the old tiles are dropped when they arrive
         _lazy.Clear();
+        _sections.Clear();
         foreach (var zone in _drawer.Zones)
             _cards.Children.Add(BuildCard(_drawer.IsDefault(zone) ? zone.Title + "  (기본)" : zone.Title, _drawer.IconsOf(zone), zone));
         if (_drawer.ShowApps)
@@ -283,8 +304,13 @@ internal sealed class DrawerWindow : Window
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(6, 0, 6, 10),
         };
+        // Portals show a folder as-is; other zones get the layout selector (manual / name / date / type).
+        var headerRow = zone.IsPortal
+            ? new DockPanel { Children = { header } }
+            : HeaderRow(header, SortSelector(zone.SortMode, mode => _drawer.SetSortMode(zone, mode),
+                ("manual", "수동"), ("name", "이름"), ("date", "날짜"), ("type", "종류")));
         var tiles = new WrapPanel();
-        var body = new StackPanel { Children = { header, tiles } };
+        var body = new StackPanel { Children = { headerRow, tiles } };
         var card = new Border
         {
             Width = 440,
@@ -374,6 +400,7 @@ internal sealed class DrawerWindow : Window
                     _drawer.ApplyRulesToUnassigned();
             }));
             menu.Items.Add(MenuItem("기본 구역으로 지정", () => _drawer.SetDefaultZone(zone)));
+            menu.Items.Add(MenuItem("이름순으로 정렬 (한 번)", () => _drawer.SortZone(zone)));
             menu.Items.Add(new Separator());
             menu.Items.Add(MenuItem("구역 삭제", () =>
             {
@@ -387,10 +414,198 @@ internal sealed class DrawerWindow : Window
         if (zone.IsPortal)
             header.Text = "📁 " + title;
 
+        if (!zone.IsPortal && zone.SortMode != "manual")
+        {
+            // Folded into collapsible groups ("little drawers") by the chosen key.
+            body.Children.Remove(tiles);
+            BuildSections(body, icons.ToList(), zone.SortMode, zone.Id.ToString());
+            return card;
+        }
         // A portal can hold hundreds of files; only the first page is built, the rest
         // on demand, so opening the drawer stays instant.
         AddTiles(body, tiles, icons, zone.IsPortal ? _drawer.PortalRows * TilesPerRow : int.MaxValue);
         return card;
+    }
+
+    // Title on the left, a small selector on the right.
+    private static DockPanel HeaderRow(TextBlock title, Button selector)
+    {
+        DockPanel.SetDock(selector, Dock.Right);
+        return new DockPanel { Children = { selector, title } };
+    }
+
+    // A small "현재값 ▾" button that opens a menu of choices. A plain ComboBox's dropdown
+    // misbehaved in this topmost, transparent window; context menus are known to work here.
+    private static Button SortSelector(string current, Action<string> changed, params (string Value, string Label)[] choices)
+    {
+        var currentLabel = choices.FirstOrDefault(c => c.Value == current).Label ?? choices[0].Label;
+        var button = new Button
+        {
+            Content = currentLabel + " ▾",
+            FontSize = 12,
+            Padding = new Thickness(10, 3, 8, 3),
+            Margin = new Thickness(6, -2, 6, 0),
+            VerticalAlignment = VerticalAlignment.Top,
+            Background = new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF)),
+            Foreground = Brushes.White,
+            BorderThickness = new Thickness(0),
+            Cursor = Cursors.Hand,
+            Tag = "control",
+        };
+        var menu = new ContextMenu { PlacementTarget = button, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
+        foreach (var (value, label) in choices)
+            menu.Items.Add(MenuItem((value == current ? "● " : "○ ") + label, () =>
+            {
+                Log.Write($"layout selector: {current} -> {value}");
+                if (value != current) changed(value);
+            }));
+        button.Click += (_, _) => menu.IsOpen = true;
+        return button;
+    }
+
+    // --- grouped layout ("little drawers") ---
+
+    // Open/closed state of groups, remembered for the session so reopening the drawer keeps them.
+    private readonly HashSet<string> _openSections = new();
+    private readonly List<(string Query, Action<string> BuildMatching, Action<bool> SetExpanded)> _sections = new();
+
+    private void BuildSections(StackPanel body, List<DesktopIcon> icons, string mode, string cardKey)
+    {
+        foreach (var group in GroupIcons(icons, mode))
+        {
+            var key = cardKey + "/" + group.Label;
+            var open = _openSections.Contains(key);
+            var arrow = new TextBlock { Foreground = WidgetDim, FontSize = 12, Width = 16, Text = open ? "▾" : "▸" };
+            var label = new TextBlock { Foreground = Brushes.White, FontSize = 13, FontWeight = FontWeights.SemiBold, Text = $"{group.Label}  ({group.Items.Count})" };
+            var headerBar = new Border
+            {
+                Background = new SolidColorBrush(Color.FromArgb(0x28, 0xFF, 0xFF, 0xFF)),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(10, 5, 10, 5),
+                Margin = new Thickness(4, 4, 4, 0),
+                Cursor = Cursors.Hand,
+                Tag = "control",
+                Child = new DockPanel { Children = { arrow, label } },
+            };
+            var panel = new WrapPanel { Visibility = open ? Visibility.Visible : Visibility.Collapsed };
+            var content = new StackPanel { Children = { panel } };
+            LazyTiles? lazy = null;
+            void Ensure()
+            {
+                if (lazy != null) return;
+                lazy = new LazyTiles(this, content, panel, group.Items, _drawer.PortalRows * TilesPerRow);
+                _lazy.Add(lazy);
+                lazy.AddPage();
+            }
+            void SetExpanded(bool expanded)
+            {
+                if (expanded) Ensure();
+                panel.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
+                arrow.Text = expanded ? "▾" : "▸";
+            }
+            if (open) Ensure();
+            headerBar.MouseLeftButtonUp += (_, _) =>
+            {
+                var expanded = panel.Visibility != Visibility.Visible;
+                Log.Write($"section {key}: {(expanded ? "open" : "close")}");
+                if (expanded) _openSections.Add(key); else _openSections.Remove(key);
+                SetExpanded(expanded);
+            };
+            body.Children.Add(headerBar);
+            body.Children.Add(content);
+            _sections.Add((cardKey, query => { Ensure(); lazy!.BuildMatching(query); }, SetExpanded));
+        }
+    }
+
+    private static readonly Brush WidgetDim = new SolidColorBrush(Color.FromArgb(0xB0, 0xFF, 0xFF, 0xFF));
+
+    private IEnumerable<(string Label, List<DesktopIcon> Items)> GroupIcons(List<DesktopIcon> icons, string mode)
+    {
+        switch (mode)
+        {
+            case "date":
+            {
+                var now = DateTime.Now;
+                var stamped = icons.Select(i => (Icon: i, When: LastWrite(i))).ToList();
+                var buckets = new (string Label, Func<DateTime?, bool> Match)[]
+                {
+                    ("오늘", t => t != null && t.Value.Date == now.Date),
+                    ("어제", t => t != null && t.Value.Date == now.Date.AddDays(-1)),
+                    ("이번 주", t => t != null && t.Value.Date > now.Date.AddDays(-7)),
+                    ("이번 달", t => t != null && t.Value.Year == now.Year && t.Value.Month == now.Month),
+                    ("올해", t => t != null && t.Value.Year == now.Year),
+                    ("이전", t => t != null),
+                    ("날짜 없음", t => t == null),
+                };
+                var left = stamped.ToList();
+                foreach (var (label, match) in buckets)
+                {
+                    var hit = left.Where(s => match(s.When)).OrderByDescending(s => s.When).Select(s => s.Icon).ToList();
+                    if (hit.Count == 0) continue;
+                    left.RemoveAll(s => match(s.When));
+                    yield return (label, hit);
+                }
+                yield break;
+            }
+            case "type":
+            {
+                var order = new[] { "앱", "바로가기", "폴더", "이미지", "문서", "파일", "시스템" };
+                var sorted = AppCatalog.Sort(icons, _drawer.AppSortLatinFirst);
+                foreach (var label in order)
+                {
+                    var hit = sorted.Where(i => Kind(i) == label).ToList();
+                    if (hit.Count > 0) yield return (label, hit);
+                }
+                yield break;
+            }
+            default: // "name": first letter, in the same order as the sort setting
+            {
+                var sorted = AppCatalog.Sort(icons, _drawer.AppSortLatinFirst);
+                foreach (var group in sorted.GroupBy(i => Initial(i.Name)))
+                    yield return (group.Key, group.ToList());
+                yield break;
+            }
+        }
+    }
+
+    private static DateTime? LastWrite(DesktopIcon icon)
+    {
+        if (icon.IsApp || icon.IsShellItem) return null;
+        try
+        {
+            return System.IO.File.GetLastWriteTime(icon.Id);
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private static string Kind(DesktopIcon icon)
+    {
+        if (icon.IsApp) return "앱";
+        if (icon.IsShellItem) return "시스템";
+        if (System.IO.Directory.Exists(icon.Id)) return "폴더";
+        var ext = System.IO.Path.GetExtension(icon.Id).ToLowerInvariant();
+        return ext switch
+        {
+            ".lnk" or ".url" or ".appref-ms" => "바로가기",
+            ".jpg" or ".jpeg" or ".png" or ".gif" or ".webp" or ".bmp" or ".heic" or ".avif" or ".tif" or ".tiff" => "이미지",
+            ".pdf" or ".doc" or ".docx" or ".xls" or ".xlsx" or ".ppt" or ".pptx" or ".txt" or ".md" or ".hwp" or ".hwpx" or ".rtf" => "문서",
+            _ => "파일",
+        };
+    }
+
+    // "A".."Z", "0-9", a Hangul initial consonant (ㄱ..ㅎ), or "#".
+    private static string Initial(string name)
+    {
+        if (name.Length == 0) return "#";
+        var c = name[0];
+        if (c is >= '가' and <= '힣')
+            return "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ"[(c - 0xAC00) / 588].ToString();
+        if (char.IsDigit(c)) return "0-9";
+        if (c < 0x0250 && char.IsLetter(c)) return char.ToUpperInvariant(c).ToString();
+        return "#";
     }
 
     /// <summary>The card listing every installed app (from the shell's Applications folder), paged like a portal.</summary>
@@ -405,8 +620,10 @@ internal sealed class DrawerWindow : Window
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(6, 0, 6, 10),
         };
+        var headerRow = HeaderRow(header, SortSelector(_drawer.AppSections ? "letters" : "flat",
+            mode => _drawer.AppSections = mode == "letters", ("flat", "전체"), ("letters", "글자별")));
         var tiles = new WrapPanel();
-        var body = new StackPanel { Children = { header, tiles } };
+        var body = new StackPanel { Children = { headerRow, tiles } };
         var card = new Border
         {
             Width = 440,
@@ -418,9 +635,21 @@ internal sealed class DrawerWindow : Window
             Child = body,
         };
         var menu = new ContextMenu();
+        var latin = _drawer.AppSortLatinFirst;
+        menu.Items.Add(MenuItem((latin ? "● " : "○ ") + "정렬: A→Z 먼저, 그다음 가나다", () => _drawer.AppSortLatinFirst = true));
+        menu.Items.Add(MenuItem((latin ? "○ " : "● ") + "정렬: 가나다 먼저, 그다음 A→Z", () => _drawer.AppSortLatinFirst = false));
+        menu.Items.Add(new Separator());
         menu.Items.Add(MenuItem("설치된 앱 카드 숨기기 (트레이 메뉴에서 다시 켤 수 있음)", () => _drawer.ShowApps = false));
         card.ContextMenu = menu;
-        AddTiles(body, tiles, apps, _drawer.PortalRows * TilesPerRow);
+        if (_drawer.AppSections)
+        {
+            body.Children.Remove(tiles);
+            BuildSections(body, apps.ToList(), "name", "apps");
+        }
+        else
+        {
+            AddTiles(body, tiles, apps, _drawer.PortalRows * TilesPerRow);
+        }
         return card;
     }
 
@@ -631,7 +860,7 @@ internal sealed class DrawerWindow : Window
         };
         tile.MouseMove += (_, e) =>
         {
-            if (portalEntry) return; // files seen through a portal are not desktop items; nothing to drag them into
+            if (portalEntry && !icon.IsApp) return; // files seen through a portal are not desktop items; nothing to drag them into
             if (e.LeftButton != MouseButtonState.Pressed || _dragId != icon.Id) return;
             var delta = e.GetPosition(this) - _dragStart;
             if (Math.Abs(delta.X) < 6 && Math.Abs(delta.Y) < 6) return;
@@ -675,7 +904,27 @@ internal sealed class DrawerWindow : Window
 
         if (icon.IsApp)
         {
+            // Installed app: launch; add to / move between zones; make a desktop shortcut.
+            var appIds = ids.Where(AppCatalog.IsAppId).ToList();
+            var inZone = _drawer.ZoneOf(icon.Id);
             menu.Items.Add(MenuItem("열기", () => Launch(icon)));
+            var add = new MenuItem { Header = $"{label} {(inZone == null ? "구역에 추가" : "구역으로 이동")}".Trim() };
+            foreach (var zone in _drawer.Zones.Where(z => !z.IsPortal))
+                add.Items.Add(MenuItem(_drawer.IsDefault(zone) ? zone.Title + " (기본)" : zone.Title, () =>
+                {
+                    foreach (var id in appIds) _drawer.MoveToZone(id, zone);
+                }));
+            menu.Items.Add(add);
+            if (inZone != null)
+                menu.Items.Add(MenuItem($"{label} 구역에서 빼기".Trim(), () =>
+                {
+                    foreach (var id in appIds) _drawer.RemoveMember(id);
+                }));
+            menu.Items.Add(new Separator());
+            menu.Items.Add(MenuItem($"{label} 바탕화면에 바로가기 만들기".Trim(), () =>
+            {
+                foreach (var id in appIds) _drawer.PinApp(id);
+            }));
             return menu;
         }
         if (!_drawer.IsDesktopItem(icon.Id))
@@ -823,7 +1072,15 @@ internal sealed class DrawerWindow : Window
     {
         var query = _search.Text.Trim();
         if (query.Length > 0)
+        {
+            // Folded groups open up for a search so their matches can be seen.
+            foreach (var (_, buildMatching, setExpanded) in _sections)
+            {
+                buildMatching(query);
+                setExpanded(true);
+            }
             foreach (var lazy in _lazy) lazy.BuildMatching(query);
+        }
         foreach (var (tile, icon, _) in _tiles)
             tile.Visibility = query.Length == 0 || icon.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
                 ? Visibility.Visible
@@ -832,9 +1089,11 @@ internal sealed class DrawerWindow : Window
         // Hide cards with nothing left to show while searching.
         foreach (var child in _cards.Children.OfType<Border>())
         {
-            if (child.Child is not StackPanel body || body.Children.Count < 2 || body.Children[1] is not WrapPanel tiles) continue;
-            var any = tiles.Children.OfType<FrameworkElement>().Any(t => t.Visibility == Visibility.Visible);
+            if (child.Child is not StackPanel) continue; // the add-zone buttons
+            var any = _tiles.Any(t => t.Tile.Visibility == Visibility.Visible && t.Tile.IsDescendantOf(child));
             child.Visibility = query.Length == 0 || any ? Visibility.Visible : Visibility.Collapsed;
         }
     }
+
+    private string _lastQuery = "";
 }

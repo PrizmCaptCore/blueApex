@@ -49,8 +49,24 @@ internal static class AppCatalog
         }
         Marshal.ReleaseComObject(enumerator);
         Marshal.ReleaseComObject(folder);
-        return apps.OrderBy(a => a.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+        return apps;
     }
+
+    /// <summary>
+    /// Name order. <paramref name="latinFirst"/> puts names starting with a Latin letter or
+    /// digit (A→Z) before everything else (가나다...); otherwise the culture's own order,
+    /// which on a Korean system lists Hangul first.
+    /// </summary>
+    public static List<DesktopIcon> Sort(IEnumerable<DesktopIcon> apps, bool latinFirst)
+    {
+        var byName = StringComparer.CurrentCultureIgnoreCase;
+        return latinFirst
+            ? apps.OrderBy(a => IsLatinOrDigit(a.Name) ? 0 : 1).ThenBy(a => a.Name, byName).ToList()
+            : apps.OrderBy(a => a.Name, byName).ToList();
+    }
+
+    private static bool IsLatinOrDigit(string name) =>
+        name.Length > 0 && name[0] < 0x0250 && char.IsLetterOrDigit(name[0]);
 
     private const uint SIGDN_NORMALDISPLAY = 0;
     private const uint SIGDN_PARENTRELATIVEPARSING = 0x80018001;

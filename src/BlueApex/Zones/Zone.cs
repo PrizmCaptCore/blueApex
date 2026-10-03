@@ -36,6 +36,12 @@ internal sealed class Zone
     [System.Text.Json.Serialization.JsonIgnore]
     public bool IsPortal => PortalPath != null;
 
+    /// <summary>
+    /// How the card lays its items out: "manual" (drag order, flat), or "name" / "date" / "type",
+    /// which fold the items into collapsible groups (letters, recency buckets, kinds).
+    /// </summary>
+    public string SortMode { get; set; } = "manual";
+
     /// <summary>Icon ids (<see cref="Desktop.DesktopIcon.Id"/>) in slot order.</summary>
     public List<string> Members { get; set; } = new();
 

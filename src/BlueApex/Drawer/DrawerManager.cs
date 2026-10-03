@@ -51,7 +51,7 @@ internal sealed class DrawerManager : IDisposable
         EnsureDefaultZone();
         Reconcile();
         Save();
-        if (_file.ShowApps) RescanApps();
+        RescanApps(); // zones may hold app members even when the all-apps card is off
 
         _poll = new DispatcherTimer(DispatcherPriority.Background) { Interval = PollInterval };
         _poll.Tick += (_, _) => Poll();
@@ -73,8 +73,34 @@ internal sealed class DrawerManager : IDisposable
     /// <summary>Whether an id is a desktop item this app manages (as opposed to a file shown through a portal).</summary>
     public bool IsDesktopItem(string id) => _current.ContainsKey(id);
 
+    // Members are desktop items, or installed apps ("app:" ids) that were dragged in from
+    // the all-apps card; those resolve against the app list and need no file on the desktop.
     private IEnumerable<DesktopIcon> MembersOf(Zone zone) =>
-        zone.Members.Select(id => _current.GetValueOrDefault(id)).OfType<DesktopIcon>();
+        zone.Members.Select(id => _current.GetValueOrDefault(id) ?? _appsById.GetValueOrDefault(id)).OfType<DesktopIcon>();
+
+    private Dictionary<string, DesktopIcon> _appsById = new();
+
+    /// <summary>Whether an id can be put in a zone: a desktop item or an installed app.</summary>
+    public bool CanBeMember(string id) => _current.ContainsKey(id) || AppCatalog.IsAppId(id);
+
+    /// <summary>
+    /// Puts a shortcut to the app on the desktop (visible, pinned) and lets it take the
+    /// app's place in its zone, so the zone shows the shortcut from now on.
+    /// </summary>
+    public DesktopIcon PinApp(string appId)
+    {
+        var name = _appsById.GetValueOrDefault(appId)?.Name ?? appId[AppCatalog.IdPrefix.Length..];
+        var path = ShortcutWriter.CreateAppShortcut(appId, name, DesktopCatalog.UserDesktop);
+        Refresh(); // the poll must not see the new file as "new" and hide it
+        var zone = ZoneOf(appId);
+        foreach (var z in _file.Zones) z.Members.Remove(appId);
+        (zone ?? DefaultZone).Members.Add(path);
+        if (!_file.Pinned.Contains(path)) _file.Pinned.Add(path);
+        Save();
+        Changed?.Invoke();
+        Log.Write($"app shortcut {path} pinned");
+        return _current[path];
+    }
 
     /// <summary>Pinned, or a shell item (which cannot be hidden), or a file we lack the rights to hide.</summary>
     public bool IsOnDesktop(string id) =>
@@ -198,6 +224,49 @@ internal sealed class DrawerManager : IDisposable
         }
     }
 
+    /// <summary>All-apps order: true = A→Z first then 가나다, false = the culture's order (가나다 first on Korean Windows).</summary>
+    public bool AppSortLatinFirst
+    {
+        get => _file.AppSort != "hangul";
+        set
+        {
+            _file.AppSort = value ? "latin" : "hangul";
+            _apps = AppCatalog.Sort(_apps, value);
+            Save();
+            Changed?.Invoke();
+        }
+    }
+
+    /// <summary>Sets how a zone's card is laid out: "manual", "name", "date" or "type".</summary>
+    public void SetSortMode(Zone zone, string mode)
+    {
+        zone.SortMode = mode;
+        Save();
+        Changed?.Invoke();
+    }
+
+    public bool AppSections
+    {
+        get => _file.AppSections;
+        set
+        {
+            _file.AppSections = value;
+            Save();
+            Changed?.Invoke();
+        }
+    }
+
+    /// <summary>Reorders a zone's members by name, once (drag order is kept otherwise).</summary>
+    public void SortZone(Zone zone)
+    {
+        var icons = MembersOf(zone).ToList();
+        var sorted = AppCatalog.Sort(icons, AppSortLatinFirst).Select(i => i.Id).ToList();
+        var missing = zone.Members.Where(id => !sorted.Contains(id)); // members not on the desktop right now keep their place at the end
+        zone.Members = sorted.Concat(missing).ToList();
+        Save();
+        Changed?.Invoke();
+    }
+
     public bool ShowApps
     {
         get => _file.ShowApps;
@@ -229,7 +298,8 @@ internal sealed class DrawerManager : IDisposable
             dispatcher.BeginInvoke(() =>
             {
                 var changed = apps.Count != _apps.Count;
-                _apps = apps;
+                _apps = AppCatalog.Sort(apps, AppSortLatinFirst);
+                _appsById = apps.ToDictionary(a => a.Id);
                 _appsScanned = DateTime.UtcNow;
                 _appsScanning = false;
                 if (changed) Changed?.Invoke();
@@ -367,6 +437,16 @@ internal sealed class DrawerManager : IDisposable
     }
 
     /// <summary>Puts the icon in a zone (null = the default zone), keeping its pinned state.</summary>
+    /// <summary>Takes an app out of whatever zone holds it (apps have no default zone to fall back to).</summary>
+    public void RemoveMember(string id)
+    {
+        var removed = false;
+        foreach (var z in _file.Zones) removed |= z.Members.Remove(id);
+        if (!removed) return;
+        Save();
+        Changed?.Invoke();
+    }
+
     public void MoveToZone(string id, Zone? zone)
     {
         foreach (var z in _file.Zones) z.Members.Remove(id);

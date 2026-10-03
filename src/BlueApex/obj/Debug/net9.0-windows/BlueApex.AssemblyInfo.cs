@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyCopyrightAttribute("Copyright (c) 2026 prizmcaptcore")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+bc172df56e8dca02cfe3493d5c3bb6b8380ed205")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+558ec61ebb1e962b7545593b8668b1a1a072c9e1")]
 [assembly: System.Reflection.AssemblyProductAttribute("BlueApex")]
 [assembly: System.Reflection.AssemblyTitleAttribute("BlueApex")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

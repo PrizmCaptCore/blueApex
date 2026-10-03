@@ -36,6 +36,12 @@ internal sealed class LayoutFile
     /// <summary>Whether the drawer ends with a card listing every installed app.</summary>
     public bool ShowApps { get; set; } = true;
 
+    /// <summary>Order of the all-apps card: "latin" (A→Z first, then 가나다) or "hangul" (가나다 first).</summary>
+    public string AppSort { get; set; } = "latin";
+
+    /// <summary>All-apps card folded into per-letter groups instead of one flat list.</summary>
+    public bool AppSections { get; set; }
+
     /// <summary>Widgets on the home screen.</summary>
     public List<Widgets.WidgetSpec> Widgets { get; set; } = new();
 }
