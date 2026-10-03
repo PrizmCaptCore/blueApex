@@ -286,8 +286,19 @@ internal sealed class DrawerWindow : Window
         foreach (var zone in _drawer.Zones)
             move.Items.Add(MenuItem(_drawer.IsDefault(zone) ? zone.Title + " (기본)" : zone.Title, () => _drawer.MoveToZone(icon.Id, zone)));
         menu.Items.Add(move);
-        if (!icon.Id.StartsWith("::", StringComparison.Ordinal))
+        if (!icon.IsShellItem)
+        {
             menu.Items.Add(MenuItem("파일 위치 열기", () => DrawerManager.OpenLocation(icon)));
+            menu.Items.Add(new Separator());
+            menu.Items.Add(MenuItem("삭제 (휴지통으로)", () =>
+            {
+                var kind = System.IO.Directory.Exists(icon.Id) ? "폴더" : "파일";
+                if (MessageBox.Show($"'{icon.Name}' {kind}을(를) 휴지통으로 보낼까요?", "삭제", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                    return;
+                if (!_drawer.Delete(icon))
+                    MessageBox.Show($"삭제하지 못했습니다: {icon.Name}", "BlueApex", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }));
+        }
         tile.ContextMenu = menu;
         return tile;
     }

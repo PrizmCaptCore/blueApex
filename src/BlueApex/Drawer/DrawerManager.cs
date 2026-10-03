@@ -282,6 +282,42 @@ internal sealed class DrawerManager : IDisposable
         Process.Start(new ProcessStartInfo(file) { UseShellExecute = true });
     }
 
+    /// <summary>Sends the file or folder to the Recycle Bin (undoable there). Returns false if the shell refused.</summary>
+    public bool Delete(DesktopIcon icon)
+    {
+        if (icon.IsShellItem) return false;
+        var operation = new SHFILEOPSTRUCT
+        {
+            wFunc = FO_DELETE,
+            pFrom = icon.Id + "\0\0", // double-null-terminated list
+            fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT,
+        };
+        var result = SHFileOperation(ref operation);
+        var ok = result == 0 && !operation.fAnyOperationsAborted;
+        Log.Write($"delete {icon.Name}: {(ok ? "sent to recycle bin" : $"failed ({result})")}");
+        if (ok) Poll(); // drop it from the drawer right away
+        return ok;
+    }
+
+    private const uint FO_DELETE = 3;
+    private const ushort FOF_SILENT = 0x4, FOF_NOCONFIRMATION = 0x10, FOF_ALLOWUNDO = 0x40;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct SHFILEOPSTRUCT
+    {
+        public IntPtr hwnd;
+        public uint wFunc;
+        public string pFrom;
+        public string? pTo;
+        public ushort fFlags;
+        [MarshalAs(UnmanagedType.Bool)] public bool fAnyOperationsAborted;
+        public IntPtr hNameMappings;
+        public string? lpszProgressTitle;
+    }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern int SHFileOperation(ref SHFILEOPSTRUCT operation);
+
     public static void OpenLocation(DesktopIcon icon)
     {
         if (icon.IsShellItem) return;
