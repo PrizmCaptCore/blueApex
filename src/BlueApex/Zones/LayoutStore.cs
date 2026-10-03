@@ -11,7 +11,18 @@ internal sealed class LayoutFile
     /// <summary>Look applied to every zone that has no style of its own.</summary>
     public ZoneStyle DefaultStyle { get; set; } = new();
 
+    /// <summary>Zones are the drawer's categories.</summary>
     public List<Zone> Zones { get; set; } = new();
+
+    /// <summary>Icons kept on the desktop (ids). Everything else lives in the drawer only.</summary>
+    public List<string> Pinned { get; set; } = new();
+
+    /// <summary>Drawer hotkey, e.g. "Ctrl+Shift+Space".</summary>
+    public string Hotkey { get; set; } = "Ctrl+Shift+Space";
+
+    /// <summary>Position of the drawer button on the desktop (icon-view pixels); null = default spot.</summary>
+    public int? ButtonX { get; set; }
+    public int? ButtonY { get; set; }
 }
 
 /// <summary>Reads and writes %AppData%\BlueApex\layout.json.</summary>

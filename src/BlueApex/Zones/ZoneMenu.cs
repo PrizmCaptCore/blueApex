@@ -82,7 +82,13 @@ internal sealed class ZoneMenu : IDisposable
     /// <summary>Asks for a zone title in a small dialog; null if cancelled.</summary>
     public static string? AskTitle(string current) => AskText("구역 이름", current, null, multiline: false)?.Trim();
 
-    private static string? AskText(string title, string current, string? hint, bool multiline)
+    /// <summary>Help text shown above the pattern editor.</summary>
+    public const string PatternHint =
+        "한 줄에 하나씩. 파일 이름에 대한 와일드카드입니다.\n" +
+        "예: *.url    *.lnk    Steam*    folder:*    file:*.pdf\n" +
+        "새로 생기는 아이콘 중 규칙에 맞는 것이 이 구역으로 들어옵니다.";
+
+    public static string? AskText(string title, string current, string? hint, bool multiline)
     {
         var box = new TextBox
         {
