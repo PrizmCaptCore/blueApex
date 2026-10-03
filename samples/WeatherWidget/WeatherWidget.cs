@@ -70,6 +70,8 @@ internal sealed class WeatherWidget : IWidget
             Refresh();
         }),
         new WidgetMenuItem("지금 새로 고침", Refresh),
+        WidgetMenuItem.Separator,
+        new WidgetMenuItem("날씨 데이터: Open-Meteo.com (CC BY 4.0)", () => System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("https://open-meteo.com/") { UseShellExecute = true })),
     };
 
     public void OnClick() => Refresh();

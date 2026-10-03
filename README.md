@@ -1,8 +1,6 @@
 # BlueApex
 
-Windows 11용 바탕화면 아이콘 정리 프로그램. Stardock Fences처럼 바탕화면에 "구역"을 두고,
-그 안에 들어온 아이콘을 자동으로 격자 정렬한다. 탐색기에 DLL을 주입하지 않고 외부 프로세스에서
-공개 셸 API(IFolderView)와 바탕화면 창 계층만 사용한다.
+Windows 11용 바탕화면 정리 툴.
 
 ## 구성
 
@@ -55,3 +53,7 @@ dotnet run --project src/BlueApex
 ## 검증된 환경
 
 Windows 11 빌드 26300 (26H2), 3840x2160 150%, Wallpaper Engine 사용 중.
+
+## 라이선스
+
+MIT (LICENSE 참고). 저작권자 prizmcaptcore. 재배포되는 구성 요소의 고지는 THIRD-PARTY-NOTICES.md에 있다.

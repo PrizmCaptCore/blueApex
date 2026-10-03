@@ -4,6 +4,9 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net9.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
+    <Authors>prizmcaptcore</Authors>
+    <Copyright>Copyright (c) 2026 prizmcaptcore</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <!-- WinForms is referenced only for the tray icon (NotifyIcon). -->
