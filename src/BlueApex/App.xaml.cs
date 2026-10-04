@@ -152,6 +152,7 @@ public partial class App : Application
         {
             _drawer = new DrawerManager();
             Autostart.MigrateFromRunKey();
+            Updater.CleanTemp();
             _window = new DrawerWindow(_drawer);
             _hotkey = new Hotkey(_window, _drawer.Hotkey, ToggleDrawer);
         }

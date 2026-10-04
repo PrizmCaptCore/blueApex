@@ -86,6 +86,21 @@ internal sealed class Updater
         Process.Start(new ProcessStartInfo(file, "/SILENT /LAUNCH=1") { UseShellExecute = true }); // elevates via UAC
     }
 
+    /// <summary>Deletes installers left in %TEMP% by earlier updates (the installer cannot delete itself while running).</summary>
+    public static void CleanTemp()
+    {
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(Path.GetTempPath(), "BlueApex-Setup-*.exe"))
+                if (File.GetLastWriteTimeUtc(file) < DateTime.UtcNow.AddHours(-1))
+                    File.Delete(file);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // a locked or vanished file; try again next start
+        }
+    }
+
     // 1.2 and 1.2.0.0 are the same release.
     private static Version Normalize(Version v) => new(v.Major, v.Minor, Math.Max(0, v.Build), Math.Max(0, v.Revision));
 }

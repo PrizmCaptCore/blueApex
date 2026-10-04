@@ -22,6 +22,14 @@
 6. GitHub Releases에서 태그 `v0.2.0`으로 릴리스를 만들고 **`BlueApex-Setup-0.2.0.exe`를 첨부**한다.
    앱은 태그에서 버전을, 첨부 파일 중 `BlueApex-Setup-*.exe`에서 설치 파일을 찾는다. 둘 중 하나가 없으면 업데이트로 인식하지 않는다.
 
+## 부산물 정리
+
+- `build\publish.ps1`은 돌 때마다 `build\out\app`을 새로 만들고, 방금 만든 설치 파일만 남기고 이전 버전 설치 파일은 지운다(릴리스된 것은 GitHub에 있다).
+- `.\build\clean.ps1`은 모든 프로젝트의 `bin`·`obj`와 `build\out`을 지운다. 설치 파일을 남기려면 `-KeepOut`.
+- 앱 쪽: `log.txt`는 1MB를 넘으면 `log.old`로 넘기고 새로 쓴다(최대 2개). 아이콘 배치 백업은 자동 생성분 10개만 유지한다.
+  업데이트로 `%TEMP%`에 받은 설치 파일은 다음 시작 때 지운다. `layout.broken-*.json`은 복구용이라 자동으로 지우지 않는다.
+- WebView2 프로필(`%AppData%\BlueApex\browser`, `browser-player`)은 수십 MB까지 자라며, 제거 시 설정 폴더와 함께 지울 수 있다.
+
 ## 인스톨러가 하는 일 (`build/BlueApex.iss`)
 
 - 설치·업데이트·제거 전에 실행 중인 BlueApex에 `--exit`를 보내고 뮤텍스가 사라질 때까지(최대 15초) 기다린다. 그래야 숨긴 아이콘이 돌아오고 파일 잠금이 풀린다.

@@ -35,3 +35,7 @@ if (-not $iscc) { throw "Inno Setup 6 not found. Install it: winget install JRSo
 & $iscc "/DAppVersion=$version" "/DAppDir=$app" "/DOutDir=$out" (Join-Path $PSScriptRoot "BlueApex.iss")
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
 Write-Host "installer: $out\BlueApex-Setup-$version.exe"
+
+# Only the installer just built stays; earlier ones are on GitHub Releases anyway.
+Get-ChildItem $out -Filter "BlueApex-Setup-*.exe" | Where-Object { $_.Name -ne "BlueApex-Setup-$version.exe" } |
+    ForEach-Object { Remove-Item $_.FullName; Write-Host "removed old $($_.Name)" }
