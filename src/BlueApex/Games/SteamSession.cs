@@ -34,13 +34,15 @@ internal static class SteamSession
         var steamId = await SteamIdAsync(browser);
         if (steamId == null) return null;
 
-        var text = await browser.FetchTextAsync(TokenUrl);
+        // A throwaway query string keeps the browser from handing back a cached (possibly expired) token.
+        var tokenUrl = $"{TokenUrl}?t={DateTime.UtcNow.Ticks}";
+        var text = await browser.FetchTextAsync(tokenUrl);
         var token = TokenFrom(text);
         if (token == null)
         {
             // The community login normally signs the store in too; if not, one visit does it.
             await browser.NavigateAsync("https://store.steampowered.com/");
-            token = TokenFrom(await browser.FetchTextAsync(TokenUrl));
+            token = TokenFrom(await browser.FetchTextAsync(tokenUrl));
         }
         if (token == null) Log.Write("steam: signed in but no web API token from the store");
         return token == null ? null : new Credentials(steamId.Value, token);

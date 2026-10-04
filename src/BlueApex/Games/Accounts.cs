@@ -86,9 +86,9 @@ internal sealed class SteamAccount : IAccountSource
     private static SteamSession.Credentials? _session;
     private static DateTime _sessionAt;
 
-    private static async Task<SteamSession.Credentials?> SessionAsync()
+    private static async Task<SteamSession.Credentials?> SessionAsync(bool fresh = false)
     {
-        if (_session != null && DateTime.UtcNow - _sessionAt < TimeSpan.FromMinutes(50)) return _session;
+        if (!fresh && _session != null && DateTime.UtcNow - _sessionAt < TimeSpan.FromMinutes(50)) return _session;
         try
         {
             _session = await SteamSession.GetAsync(interactive: false);
@@ -107,11 +107,17 @@ internal sealed class SteamAccount : IAccountSource
         var session = await SessionAsync();
         if (session == null) return Local();
 
+        // The OAuth flavour of the summaries call is the one that takes a session token; the keyed one is a fallback.
+        var summary = await SummariesAsync(session);
+        if (summary == null)
+        {
+            // Tokens last about a day; a refused one means ours aged out, so take a new one from the store and retry once.
+            session = await SessionAsync(fresh: true);
+            if (session == null) return Local();
+            summary = await SummariesAsync(session);
+        }
         var token = Uri.EscapeDataString(session.Token);
         var id = session.SteamId;
-        // The OAuth flavour of the summaries call is the one that takes a session token; the keyed one is a fallback.
-        using var summary = await Accounts.GetJsonAsync($"{Api}/ISteamUserOAuth/GetUserSummaries/v1/?access_token={token}&steamids={id}")
-                            ?? await Accounts.GetJsonAsync($"{Api}/ISteamUser/GetPlayerSummaries/v2/?access_token={token}&steamids={id}");
         var root = summary?.RootElement;
         if (root is { } r0 && r0.TryGetProperty("response", out var wrapped)) root = wrapped;
         var player = root is { } r1 && r1.TryGetProperty("players", out var players) ? players.EnumerateArray().FirstOrDefault() : default;
@@ -143,6 +149,13 @@ internal sealed class SteamAccount : IAccountSource
 
         var (background, frame) = await EquippedAsync(token, id) ?? EquippedFromCache(id);
         return new AccountProfile(name, avatar, frame, background, status, detail, badge, $"https://steamcommunity.com/profiles/{id}", true);
+    }
+
+    private static async Task<JsonDocument?> SummariesAsync(SteamSession.Credentials session)
+    {
+        var token = Uri.EscapeDataString(session.Token);
+        return await Accounts.GetJsonAsync($"{Api}/ISteamUserOAuth/GetUserSummaries/v1/?access_token={token}&steamids={session.SteamId}")
+               ?? await Accounts.GetJsonAsync($"{Api}/ISteamUser/GetPlayerSummaries/v2/?access_token={token}&steamids={session.SteamId}");
     }
 
     // Profile background and avatar frame, as the mini profile shows them.
