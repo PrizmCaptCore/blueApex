@@ -5,7 +5,7 @@
     <TargetFramework>net9.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <!-- Bump this for a release; the installer and the update check read it (see docs/release.md). -->
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <Authors>prizmcaptcore</Authors>
     <!-- Only the languages the UI actually has; keeps the self-contained publish smaller. -->
     <SatelliteResourceLanguages>en;ko</SatelliteResourceLanguages>
