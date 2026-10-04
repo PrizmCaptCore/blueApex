@@ -39,7 +39,8 @@ internal sealed class Updater
         request.Headers.UserAgent.ParseAdd($"BlueApex/{Current} (update check)");
         request.Headers.Accept.ParseAdd("application/vnd.github+json");
         using var response = await Http.SendAsync(request);
-        if (response.StatusCode == System.Net.HttpStatusCode.NotFound) return null; // no release yet
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            throw new InvalidOperationException($"GitHub에서 릴리스 정보를 찾지 못했습니다 ({Repo}). 저장소 이름이 바뀌었거나 아직 릴리스가 없습니다.");
         response.EnsureSuccessStatusCode();
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var root = doc.RootElement;

@@ -82,7 +82,7 @@ public partial class App : Application
             if (manual && release == null)
                 MessageBox.Show($"최신 버전입니다. (현재 {Updater.Current.ToString(3)})", "BlueApex", MessageBoxButton.OK, MessageBoxImage.Information);
         }
-        catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException or System.Text.Json.JsonException or KeyNotFoundException)
+        catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException or System.Text.Json.JsonException or KeyNotFoundException or InvalidOperationException)
         {
             Log.Write($"update check failed: {ex.Message}");
             if (manual) MessageBox.Show("업데이트를 확인하지 못했습니다.\n" + ex.Message, "BlueApex", MessageBoxButton.OK, MessageBoxImage.Warning);
