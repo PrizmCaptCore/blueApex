@@ -41,6 +41,7 @@ build/
     SteamLibrary.cs      설치 게임은 appmanifest(.acf), 보유 게임은 Web API(로그인 세션의 토큰), 그림은 Steam의 캐시 폴더.
     SteamSession.cs      로그인 창 → 쿠키에서 SteamID, 스토어에서 webapi_token. 하루 뒤엔 창 없이 다시 받는다.
     BrowserSession.cs    ★ 내장 브라우저(WebView2, 유일한 NuGet 의존성). 계정 연동의 공통 부품: 창 띄우기, 쿠키 읽기, 페이지 글 가져오기.
+    Accounts.cs          계정 카드의 데이터: IAccountSource(Steam/GOG/Epic). 로그인·로그아웃·프로필 가져오기. 새 런처 계정은 여기에 클래스 하나.
     EpicLibrary.cs       설치 게임은 Manifests\*.item, 보유 게임은 런처의 catcache.bin(base64 JSON).
     GogLibrary.cs        레지스트리 GOG.com\Games (설치된 것만).
     Vdf.cs               Valve 텍스트 KeyValues(.vdf/.acf) 파서.
@@ -55,6 +56,7 @@ build/
     WidgetHost.cs        위젯 인스턴스 생성·이동·삭제. 플러그인에 주는 IWidgetContext 구현도 여기.
     WidgetRegistry.cs    내장 + 플러그인 DLL에서 위젯 종류 찾기.
     BuiltInWidgets.cs    시계·메모·"(없는 위젯)" 자리표시.
+    AccountWidget.cs     런처 계정 카드 위젯(아바타·테두리·배경·상태). 데이터는 Games/Accounts.cs.
     ZoneWidget.cs        구역/게임 격자 위젯. IInternalWidget(클릭 위치·자기 크기)은 내장 전용이라 SDK에 없다. 서랍은 DrawerManager.RequestWidget으로 요청만 한다.
     WidgetSpec.cs        저장 형식(종류, 위치, 크기, 설정 문자열).
 

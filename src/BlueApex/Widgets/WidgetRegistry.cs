@@ -23,6 +23,8 @@ internal sealed class WidgetRegistry
         Register(new ClockProvider());
         Register(new MemoProvider());
         Register(new ZoneWidgetProvider(drawer));
+        foreach (var account in Games.Accounts.All)
+            Register(new AccountWidgetProvider(account));
         foreach (var folder in new[] { AppPluginFolder, UserPluginFolder })
             LoadFolder(folder);
     }

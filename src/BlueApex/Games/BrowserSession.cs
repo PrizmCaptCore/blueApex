@@ -130,6 +130,14 @@ internal sealed class BrowserSession : IDisposable
         return JsonSerializer.Deserialize<string>(json);
     }
 
+    /// <summary>Signs out of one site: deletes the cookies the profile holds for it.</summary>
+    public static async Task ClearSiteAsync(string siteUrl)
+    {
+        using var session = await OpenAsync("", visible: false);
+        foreach (var cookie in await session.Web.CookieManager.GetCookiesAsync(siteUrl))
+            session.Web.CookieManager.DeleteCookie(cookie);
+    }
+
     /// <summary>Signs out of everything: wipes the profile's cookies and storage.</summary>
     public static async Task ClearAsync()
     {
