@@ -14,6 +14,10 @@ internal sealed record GameInfo(string Id, string Name, string Source, bool Inst
     /// <summary>Command-line arguments when the game is started directly (GOG).</summary>
     public string? LaunchArgs { get; init; }
     public string? WorkingDir { get; init; }
+
+    /// <summary>Portrait box art (2:3) as the launcher's library shows it: a local file, or a URL to download once.</summary>
+    public string? CoverFile { get; init; }
+    public string? CoverUrl { get; init; }
 }
 
 /// <summary>

@@ -17,6 +17,53 @@ public partial class App : Application
     private readonly Updater _updater = new();
     private System.Windows.Threading.DispatcherTimer? _updateTimer;
 
+    private void FillMovieMenu(System.Windows.Forms.ToolStripMenuItem menu)
+    {
+        menu.DropDownItems.Clear();
+        var current = _drawer!.StartupMovie;
+        var off = new System.Windows.Forms.ToolStripMenuItem("끄기") { Checked = current == null };
+        off.Click += (_, _) => _drawer.StartupMovie = null;
+        menu.DropDownItems.Add(off);
+        var available = StartupMovie.Available();
+        if (available.Count == 0)
+            menu.DropDownItems.Add(new System.Windows.Forms.ToolStripMenuItem("(Steam이 설치돼 있어야 합니다)") { Enabled = false });
+        var pointsShopSeen = false;
+        foreach (var choice in available)
+        {
+            if (choice.IsPointsShop && !pointsShopSeen)
+            {
+                menu.DropDownItems.Add(new System.Windows.Forms.ToolStripSeparator());
+                pointsShopSeen = true;
+            }
+            var onDisk = choice.LocalPath ?? choice.CacheFile;
+            var item = new System.Windows.Forms.ToolStripMenuItem(choice.Label + (choice.LocalPath == null ? "  (받아야 함)" : ""))
+            {
+                Checked = onDisk != null && string.Equals(current, onDisk, StringComparison.OrdinalIgnoreCase),
+            };
+            item.Click += (_, _) => _ = ChooseMovieAsync(choice);
+            menu.DropDownItems.Add(item);
+        }
+        menu.DropDownItems.Add(new System.Windows.Forms.ToolStripSeparator());
+        var preview = new System.Windows.Forms.ToolStripMenuItem("지금 재생해 보기") { Enabled = current != null };
+        preview.Click += (_, _) => { if (_drawer.StartupMovie is { } path) _ = StartupMovie.PlayAsync(path); };
+        menu.DropDownItems.Add(preview);
+        if (!Autostart.IsEnabled)
+            menu.DropDownItems.Add(new System.Windows.Forms.ToolStripMenuItem("(로그인 시 자동 실행이 켜져 있어야 재생됩니다)") { Enabled = false });
+    }
+
+    // A Points Shop movie is fetched from Steam's CDN the first time it is picked.
+    private async Task ChooseMovieAsync(StartupMovie.Choice choice)
+    {
+        var path = await StartupMovie.EnsureLocalAsync(choice);
+        if (path == null)
+        {
+            MessageBox.Show($"'{choice.Label}' 영상을 받지 못했습니다. 네트워크를 확인하고 다시 골라 주세요.", "BlueApex", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        _drawer!.StartupMovie = path;
+        _trayIcon?.ShowBalloonTip(3000, "시작 영상", $"{choice.Label}  (트레이 메뉴 → 지금 재생해 보기)", System.Windows.Forms.ToolTipIcon.Info);
+    }
+
     // Assets\tray.ico, embedded in the exe; the size matches the taskbar's DPI.
     private static System.Drawing.Icon LoadTrayIcon()
     {
@@ -79,6 +126,15 @@ public partial class App : Application
             return;
         }
 
+        // The installer / uninstaller turn run-at-login on and off through the app itself, as the real user.
+        if (e.Args.Contains("--enable-autostart") || e.Args.Contains("--disable-autostart"))
+        {
+            try { Autostart.Set(e.Args.Contains("--enable-autostart")); }
+            catch (Exception ex) when (ex is COMException or UnauthorizedAccessException) { Log.Write($"autostart switch failed: {ex.Message}"); }
+            Shutdown();
+            return;
+        }
+
         _instanceMutex = new Mutex(true, @"Local\BlueApex", out var isFirstInstance);
         if (!isFirstInstance)
         {
@@ -87,9 +143,15 @@ public partial class App : Application
         }
         ThreadPool.RegisterWaitForSingleObject(exitSignal, (_, _) => Dispatcher.BeginInvoke(() => Shutdown()), null, -1, true);
 
+        // Started by the logon task: the "boot screen" goes up first, while the rest initializes underneath it.
+        var atLogon = e.Args.Contains("--autostart");
+        if (atLogon && LayoutStore.PeekStartupMovie() is { } movie)
+            _ = StartupMovie.PlayAsync(movie);
+
         try
         {
             _drawer = new DrawerManager();
+            Autostart.MigrateFromRunKey();
             _window = new DrawerWindow(_drawer);
             _hotkey = new Hotkey(_window, _drawer.Hotkey, ToggleDrawer);
         }
@@ -163,9 +225,22 @@ public partial class App : Application
         menu.Opening += (_, _) => showGames.Checked = _drawer.ShowGames;
         menu.Items.Add(showGames);
 
-        var autostart = new System.Windows.Forms.ToolStripMenuItem("시작 시 자동 실행") { CheckOnClick = true, Checked = Autostart.IsEnabled };
-        autostart.CheckedChanged += (_, _) => Autostart.Set(autostart.Checked);
+        var autostart = new System.Windows.Forms.ToolStripMenuItem("로그인 시 자동 실행") { CheckOnClick = true, Checked = Autostart.IsEnabled };
+        autostart.CheckedChanged += (_, _) =>
+        {
+            try { Autostart.Set(autostart.Checked); }
+            catch (Exception ex) when (ex is COMException or UnauthorizedAccessException)
+            {
+                MessageBox.Show("자동 실행 설정을 바꾸지 못했습니다.\n" + ex.Message, "BlueApex", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        };
         menu.Items.Add(autostart);
+
+        // The boot screen: one of Steam's startup movies, played when the logon task starts the app.
+        var movies = new System.Windows.Forms.ToolStripMenuItem("로그인 시 시작 영상 (Steam 부팅 화면)");
+        movies.DropDownOpening += (_, _) => FillMovieMenu(movies);
+        FillMovieMenu(movies);
+        menu.Items.Add(movies);
 
         // Updates: a daily check (switchable) plus a manual one; "설치" appears once a newer release is known.
         var install = new System.Windows.Forms.ToolStripMenuItem("업데이트 설치") { Visible = false };

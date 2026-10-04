@@ -147,9 +147,9 @@ internal sealed class WidgetItem : IDesktopLayerItem, IDesktopLayerScrollable, I
 
     public bool ScrollsAt(int x, int y) => _widget is IInternalWidget w && w.ScrollsAt(x / _scale, y / _scale);
 
-    public void ScrollBy(int deltaY)
+    public void ScrollBy(int deltaX, int deltaY)
     {
-        if (_widget is IInternalWidget w) Guard(() => w.ScrollBy(deltaY / _scale));
+        if (_widget is IInternalWidget w) Guard(() => w.ScrollBy(deltaX / _scale, deltaY / _scale));
     }
 
     public void Wheel(int notches)

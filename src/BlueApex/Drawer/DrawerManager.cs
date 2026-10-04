@@ -54,6 +54,7 @@ internal sealed class DrawerManager : IDisposable
             if (!_file.Pinned.Contains(RecycleBinId)) _file.Pinned.Add(RecycleBinId);
         }
 
+        IconLoader.CustomImage = CustomImageOf;
         _current = DesktopCatalog.Scan(_icons).ToDictionary(i => i.Id);
         EnsureDefaultZone();
         Reconcile();
@@ -358,6 +359,45 @@ internal sealed class DrawerManager : IDisposable
         set { _file.CheckUpdates = value; Save(); }
     }
 
+    public string? StartupMovie
+    {
+        get => _file.StartupMovie;
+        set { _file.StartupMovie = value; Save(); }
+    }
+
+    // --- pictures the user picked for tiles ---
+
+    private static readonly string CoversDir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BlueApex", "covers");
+
+    /// <summary>The user's own picture for an item, or null for the launcher's / shell's.</summary>
+    public string? CustomImageOf(string id) => _file.CustomImages.GetValueOrDefault(id);
+
+    /// <summary>
+    /// Copies the picture into the app's folder and uses it for the item's tiles from now on;
+    /// null puts the default picture back. Throws IOException if the file cannot be copied.
+    /// </summary>
+    public void SetCustomImage(string id, string? sourcePath)
+    {
+        if (_file.CustomImages.TryGetValue(id, out var old))
+        {
+            _file.CustomImages.Remove(id);
+            try { File.Delete(old); } catch (IOException) { }
+        }
+        if (sourcePath != null)
+        {
+            Directory.CreateDirectory(CoversDir);
+            var name = Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(System.Text.Encoding.UTF8.GetBytes(id)))[..16]
+                       + Path.GetExtension(sourcePath).ToLowerInvariant();
+            var target = Path.Combine(CoversDir, name);
+            File.Copy(sourcePath, target, overwrite: true);
+            _file.CustomImages[id] = target;
+        }
+        Save();
+        IconLoader.Forget(id);
+        Changed?.Invoke();
+    }
+
     // --- folded cards (the window applies the fold itself; this only remembers it) ---
 
     public void SetRolled(Zone zone, bool rolled)
@@ -432,7 +472,7 @@ internal sealed class DrawerManager : IDisposable
                 await RefreshSteamOwnedAsync();
             var linked = _file.SteamLinked;
             var games = await Task.Run(() => GameCatalog.Scan(linked).Select(g => new DesktopIcon(g.Id, g.Name, 0, 0, false)).ToList());
-            var changed = games.Count != _games.Count;
+            var changed = !games.Select(g => g.Id).ToHashSet().SetEquals(_games.Select(g => g.Id)); // added or removed, not just a different count
             _games = AppCatalog.Sort(games, AppSortLatinFirst);
             _gamesById = games.ToDictionary(g => g.Id);
             _gamesScanned = DateTime.UtcNow;

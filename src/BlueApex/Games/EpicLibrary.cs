@@ -76,11 +76,11 @@ internal static class EpicLibrary
                 if (title == null || !item.TryGetProperty("releaseInfo", out var releases)) continue;
                 var appName = releases.EnumerateArray().Select(r => Str(r, "appId")).FirstOrDefault(a => a != null);
                 if (appName == null) continue;
-                var image = Image(item);
+                var (image, cover) = Images(item);
                 if (installed.TryGetValue(appName, out var inst))
-                    installed[appName] = inst with { ImageUrl = image }; // the installed entry gains its artwork
+                    installed[appName] = inst with { ImageUrl = image, CoverUrl = cover }; // the installed entry gains its artwork
                 else
-                    owned.Add(new GameInfo(Id(appName), title, Source, false, null, image, null));
+                    owned.Add(new GameInfo(Id(appName), title, Source, false, null, image, null) { CoverUrl = cover });
             }
         }
 
@@ -100,17 +100,21 @@ internal static class EpicLibrary
             !r.TryGetProperty("platform", out var p) || p.EnumerateArray().Any(x => x.GetString() == "Windows"));
     }
 
-    // Portrait box art, downsized by Epic's CDN; the landscape box or any thumbnail otherwise.
-    private static string? Image(JsonElement item)
+    // (small square-ish picture for icon tiles, portrait box art for cover tiles), both downsized by Epic's CDN.
+    private static (string? Image, string? Cover) Images(JsonElement item)
     {
-        if (!item.TryGetProperty("keyImages", out var images)) return null;
+        if (!item.TryGetProperty("keyImages", out var images)) return (null, null);
         var list = images.EnumerateArray().Select(i => (Type: Str(i, "type"), Url: Str(i, "url"))).Where(i => i.Url != null).ToList();
-        var pick = list.FirstOrDefault(i => i.Type == "DieselGameBoxTall").Url
+        var tall = list.FirstOrDefault(i => i.Type == "DieselGameBoxTall").Url;
+        var pick = tall
                    ?? list.FirstOrDefault(i => i.Type == "Thumbnail").Url
                    ?? list.FirstOrDefault(i => i.Type == "DieselGameBox").Url
                    ?? list.FirstOrDefault().Url;
-        return pick == null ? null : pick + (pick.Contains('?') ? "&" : "?") + "resize=1&w=160&h=160";
+        return (Resized(pick, 160, 160), Resized(tall, 300, 400));
     }
+
+    private static string? Resized(string? url, int w, int h) =>
+        url == null ? null : url + (url.Contains('?') ? "&" : "?") + $"resize=1&w={w}&h={h}";
 
     private static string? Str(JsonElement e, string name) =>
         e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;

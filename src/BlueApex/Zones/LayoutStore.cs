@@ -58,6 +58,12 @@ internal sealed class LayoutFile
     /// <summary>Whether the user signed in to Steam (in the embedded browser) to list the games they own.</summary>
     public bool SteamLinked { get; set; }
 
+    /// <summary>Pictures the user chose for tiles (widget settings): item id → file under %AppData%\BlueApex\covers.</summary>
+    public Dictionary<string, string> CustomImages { get; set; } = new();
+
+    /// <summary>A movie (from the Steam install) to play full screen when the app starts at logon; null = none.</summary>
+    public string? StartupMovie { get; set; }
+
     /// <summary>Look for a newer release on GitHub once a day and say so in the tray.</summary>
     public bool CheckUpdates { get; set; } = true;
 
@@ -80,6 +86,21 @@ internal static class LayoutStore
 
     /// <summary>Set when the last <see cref="Load"/> found an unreadable file and set it aside.</summary>
     public static string? LastLoadError { get; private set; }
+
+    /// <summary>Reads just the startup-movie path, cheaply, before the full layout is loaded (the movie must start first).</summary>
+    public static string? PeekStartupMovie()
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(FilePath));
+            return doc.RootElement.TryGetProperty(nameof(LayoutFile.StartupMovie), out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String
+                ? v.GetString() : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
 
     public static LayoutFile Load()
     {

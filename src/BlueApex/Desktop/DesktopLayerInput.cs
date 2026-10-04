@@ -31,8 +31,9 @@ internal interface IDesktopLayerScrollable
     /// <param name="x">Physical pixels from the item's top-left.</param>
     bool ScrollsAt(int x, int y);
 
-    /// <param name="deltaY">Physical pixels; positive scrolls the content up (finger drag upwards).</param>
-    void ScrollBy(int deltaY);
+    /// <param name="deltaX">Physical pixels; positive = the finger moved left, so the content follows left.</param>
+    /// <param name="deltaY">Physical pixels; positive = the finger moved up.</param>
+    void ScrollBy(int deltaX, int deltaY);
 
     /// <param name="notches">Mouse-wheel notches; positive = wheel rolled towards the user (scroll down).</param>
     void Wheel(int notches);
@@ -60,7 +61,7 @@ internal sealed class DesktopLayerInput : IDisposable
     private IDesktopLayerItem? _rightPressed;
     private bool _dragging;
     private NativeMethods.POINT _pressPoint;
-    private int _lastY;
+    private int _lastX, _lastY;
     private (int X, int Y) _pressOrigin;
 
     /// <summary>Hit-tested from the end, so later items are "on top".</summary>
@@ -111,13 +112,15 @@ internal sealed class DesktopLayerInput : IDisposable
                         if (_scrolling != null)
                         {
                             // Dragging a list: scroll it instead of moving the item.
-                            if (_dragging || Math.Abs(dy) >= DragThreshold)
+                            if (_dragging || Math.Abs(dx) >= DragThreshold || Math.Abs(dy) >= DragThreshold)
                             {
                                 _dragging = true;
-                                var step = _lastY - point.Y;
+                                var stepX = _lastX - point.X;
+                                var stepY = _lastY - point.Y;
+                                _lastX = point.X;
                                 _lastY = point.Y;
                                 var target = _scrolling;
-                                _dispatcher.BeginInvoke(() => target.ScrollBy(step));
+                                _dispatcher.BeginInvoke(() => target.ScrollBy(stepX, stepY));
                             }
                         }
                         else if (_pressed.Movable && (_dragging || Math.Abs(dx) >= DragThreshold || Math.Abs(dy) >= DragThreshold))
@@ -162,6 +165,7 @@ internal sealed class DesktopLayerInput : IDisposable
                         _pressed = item;
                         _dragging = false;
                         _pressPoint = point;
+                        _lastX = point.X;
                         _lastY = point.Y;
                         _pressOrigin = (item.Bounds.Left, item.Bounds.Top);
                         var rel = _desktop.ScreenToIcon(point);

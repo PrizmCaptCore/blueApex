@@ -69,11 +69,9 @@ Source: "{#AppDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs cre
 Name: "{group}\BlueApex"; Filename: "{app}\BlueApex.exe"
 Name: "{group}\BlueApex 종료 (아이콘 복원)"; Filename: "{app}\BlueApex.exe"; Parameters: "--exit"
 
-[Registry]
-; Same key the app's own "시작 시 자동 실행" toggle uses, so the two stay in step.
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "BlueApex"; ValueData: """{app}\BlueApex.exe"""; Tasks: autostart; Flags: uninsdeletevalue
-
 [Run]
+; Run-at-login is a Task Scheduler logon task for the real (non-elevated) user; the app creates it itself.
+Filename: "{app}\BlueApex.exe"; Parameters: "--enable-autostart"; Tasks: autostart; Flags: runhidden runasoriginaluser waituntilterminated
 ; S-1-5-32-545 = BUILTIN\Users: every user may then set the hidden attribute on public shortcuts.
 Filename: "icacls.exe"; Parameters: """{commondesktop}"" /grant *S-1-5-32-545:(OI)(CI)(WA,RA)"; Tasks: publicdesktop; Flags: runhidden
 Filename: "{app}\BlueApex.exe"; Description: "{cm:Launch}"; Flags: nowait postinstall skipifsilent runasoriginaluser
@@ -140,8 +138,12 @@ begin
 end;
 
 function InitializeUninstall: Boolean;
+var
+  ResultCode: Integer;
 begin
   StopRunningApp;
+  // Drop the logon task (and any old Run-key entry) before the exe goes away.
+  Exec(ExpandConstant('{app}\BlueApex.exe'), '--disable-autostart', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Result := True;
 end;
 

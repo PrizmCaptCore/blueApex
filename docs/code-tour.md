@@ -8,7 +8,8 @@ C#을 깊이 몰라도 이 코드를 따라 읽을 수 있도록 쓴 문서다. 
 src/BlueApex/
   App.xaml.cs            시작·종료, 트레이 메뉴. 모든 부품을 여기서 조립한다.
   Log.cs                 log.txt에 한 줄 쓰기.
-  Autostart.cs           로그인 시 자동 실행(레지스트리 Run 키).
+  Autostart.cs           로그인 시 자동 실행(작업 스케줄러 로그온 작업, COM late binding). 예전 Run 키는 옮긴다.
+  StartupMovie.cs        로그인 직후 Steam 부팅 영상을 전체 화면으로 재생(WebView2). 파일은 Steam 설치본의 것.
   Updater.cs             GitHub Releases에서 새 버전 확인, 설치 파일 받아서 조용히 실행 (docs/release.md).
 
 build/

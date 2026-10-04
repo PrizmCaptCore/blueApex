@@ -26,7 +26,7 @@
 
 - 설치·업데이트·제거 전에 실행 중인 BlueApex에 `--exit`를 보내고 뮤텍스가 사라질 때까지(최대 15초) 기다린다. 그래야 숨긴 아이콘이 돌아오고 파일 잠금이 풀린다.
 - `Program Files\BlueApex`에 설치, 시작 메뉴에 "BlueApex"와 "BlueApex 종료 (아이콘 복원)".
-- 선택: Windows 시작 시 자동 실행(앱의 트레이 토글과 같은 레지스트리 값), 공용 바탕화면 권한(icacls, Users 그룹).
+- 선택: 로그인 시 자동 실행(앱을 `--enable-autostart`로 한 번 실행해 사용자의 로그온 작업을 만듦; 제거 시 `--disable-autostart`), 공용 바탕화면 권한(icacls, Users 그룹).
 - WebView2 런타임이 없으면 부트스트래퍼를 받아 조용히 설치한다(Windows 11에는 이미 있다).
 - 제거 시 설정 폴더 `%AppData%\BlueApex`를 지울지 묻는다(기본은 "아니요").
 - 앱이 시작한 조용한 업데이트(`/SILENT /LAUNCH=1`)는 설치 뒤 앱을 다시 켠다.

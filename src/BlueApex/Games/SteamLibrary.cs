@@ -30,6 +30,9 @@ internal static class SteamLibrary
 
     public static string? ExePath => InstallPath is { } p ? Path.Combine(p, "steam.exe") : null;
 
+    /// <summary>The short account id (the userdata folder name) of the signed-in client account, or null.</summary>
+    public static uint? AccountId => SteamId64 is { } id ? (uint)(id - SteamId64Base) : null;
+
     /// <summary>The 64-bit SteamID of the account last logged in to the client, or null.</summary>
     public static long? SteamId64
     {
@@ -72,7 +75,8 @@ internal static class SteamLibrary
                 var name = acf?["name"];
                 if (appId == null || name == null || IsTool(appId, name)) continue;
                 installed.Add(appId);
-                yield return new GameInfo(Id(appId), name, Source, true, LocalImage(steam, appId, null), null, null);
+                yield return new GameInfo(Id(appId), name, Source, true, LocalImage(steam, appId, null), null, null)
+                    { CoverFile = LocalCover(steam, appId), CoverUrl = CoverUrl(appId) };
             }
         }
 
@@ -89,7 +93,8 @@ internal static class SteamLibrary
             var url = iconHash is { Length: > 0 }
                 ? $"https://media.steampowered.com/steamcommunity/public/images/apps/{appId}/{iconHash}.jpg"
                 : $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appId}/header.jpg";
-            yield return new GameInfo(Id(appId), name, Source, false, LocalImage(steam, appId, iconHash), url, null);
+            yield return new GameInfo(Id(appId), name, Source, false, LocalImage(steam, appId, iconHash), url, null)
+                { CoverFile = LocalCover(steam, appId), CoverUrl = CoverUrl(appId) };
         }
     }
 
@@ -153,9 +158,36 @@ internal static class SteamLibrary
             return Path.Combine(dir, iconHash + ".jpg");
         var hashNamed = Directory.GetFiles(dir, "*.jpg").FirstOrDefault(f => Path.GetFileNameWithoutExtension(f).Length == 40);
         if (hashNamed != null) return hashNamed;
+        // No icon cached: the header (old layout) or library_header[_lang].jpg (new layout), centre-cropped by the loader.
         var header = Path.Combine(dir, "header.jpg");
-        return File.Exists(header) ? header : null;
+        if (File.Exists(header)) return header;
+        return Directory.EnumerateDirectories(dir).SelectMany(d => Directory.EnumerateFiles(d, "library_header*.jpg")).FirstOrDefault();
     }
+
+    // The library's portrait capsule, cached by the client for every game it has shown.
+    // Older cache folders hold library_600x900.jpg directly; since 2025 each asset sits in
+    // a hash-named subfolder as library_capsule.jpg. Either may carry a language suffix
+    // (library_capsule_koreana.jpg) when the store has localized art; that one is preferred.
+    private static string? LocalCover(string steam, string appId)
+    {
+        var dir = Path.Combine(steam, "appcache", "librarycache", appId);
+        if (!Directory.Exists(dir)) return null;
+        // Both names turn up in both places (e.g. <hash>\library_600x900_koreana.jpg), so look everywhere.
+        var folders = new[] { dir }.Concat(Directory.EnumerateDirectories(dir)).ToList();
+        var candidates = folders.SelectMany(d => Directory.EnumerateFiles(d, "library_600x900*.jpg"))
+            .Concat(folders.SelectMany(d => Directory.EnumerateFiles(d, "library_capsule*.jpg")))
+            .ToList();
+        // Localized first ("_koreana"), then the plain one.
+        return candidates.OrderByDescending(IsLocalized).FirstOrDefault();
+    }
+
+    private static bool IsLocalized(string file)
+    {
+        var name = Path.GetFileNameWithoutExtension(file);
+        return name.StartsWith("library_600x900_", StringComparison.Ordinal) || name.StartsWith("library_capsule_", StringComparison.Ordinal);
+    }
+
+    private static string CoverUrl(string appId) => $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appId}/library_600x900.jpg";
 
     // Redistributables, runtimes and the like show up as "apps" but are not games.
     private static bool IsTool(string appId, string name) =>

@@ -59,7 +59,11 @@ internal sealed class IconLoader
 
     private static ImageSource? Load(string id, int sizePx, bool thumbnail)
     {
-        if (BlueApex.Games.GameCatalog.IsGameId(id)) return LoadGame(id, sizePx);
+        // A picture the user picked wins over everything; square for icon tiles, whole for cover tiles.
+        if (CustomImage?.Invoke(id) is { } custom && System.IO.File.Exists(custom)
+            && DecodeFile(custom, sizePx, crop: !(thumbnail && BlueApex.Games.GameCatalog.IsGameId(id))) is { } chosen)
+            return chosen;
+        if (BlueApex.Games.GameCatalog.IsGameId(id)) return LoadGame(id, sizePx, cover: thumbnail);
         var hbitmap = IntPtr.Zero;
         try
         {
@@ -86,35 +90,73 @@ internal sealed class IconLoader
 
     // A game's tile: the launcher's cached picture, else one downloaded from its CDN,
     // else the executable's icon. Pictures are centre-cropped to a square so Steam
-    // headers and Epic box art sit in the tile like icons do.
-    private static ImageSource? LoadGame(string id, int sizePx)
+    // headers and Epic box art sit in the tile like icons do. With <paramref name="cover"/>
+    // the portrait box art is returned whole (null when the game has none), for cover grids.
+    private static ImageSource? LoadGame(string id, int sizePx, bool cover)
     {
         var game = BlueApex.Games.GameCatalog.Find(id);
         if (game == null) return null;
-        var file = game.ImageFile ?? (game.ImageUrl != null ? BlueApex.Games.ImageCache.Fetch(game.ImageUrl) : null);
-        if (file != null)
-        {
-            try
-            {
-                var image = new BitmapImage();
-                image.BeginInit();
-                image.CacheOption = BitmapCacheOption.OnLoad;
-                image.UriSource = new Uri(file);
-                image.DecodePixelHeight = sizePx * 2; // enough for a 2x screen, small in memory
-                image.EndInit();
-                var side = Math.Min(image.PixelWidth, image.PixelHeight);
-                ImageSource result = image.PixelWidth == image.PixelHeight
-                    ? image
-                    : new CroppedBitmap(image, new System.Windows.Int32Rect((image.PixelWidth - side) / 2, (image.PixelHeight - side) / 2, side, side));
-                result.Freeze();
-                return result;
-            }
-            catch (Exception ex) when (ex is NotSupportedException or System.IO.IOException or ArgumentException)
-            {
-                // a broken cache file; fall through to the exe icon
-            }
-        }
+        var file = cover
+            ? game.CoverFile ?? (game.CoverUrl != null ? BlueApex.Games.ImageCache.Fetch(game.CoverUrl) : null)
+            : game.ImageFile ?? (game.ImageUrl != null ? BlueApex.Games.ImageCache.Fetch(game.ImageUrl) : null);
+        if (cover && file == null) return null;
+        if (file != null && DecodeFile(file, sizePx, crop: !cover, rejectTiny: cover) is { } picture)
+            return picture;
         return game.Exe != null && System.IO.File.Exists(game.Exe) ? Load(game.Exe, sizePx, false) : null;
+    }
+
+    // --- pictures the user chose themselves (widget settings) ---
+
+    /// <summary>Set by the drawer manager: the user's own picture for an id, or null.</summary>
+    public static Func<string, string?>? CustomImage { get; set; }
+
+    private static readonly List<WeakReference<IconLoader>> Instances = new();
+
+    public IconLoader()
+    {
+        lock (Instances) Instances.Add(new WeakReference<IconLoader>(this));
+    }
+
+    /// <summary>Drops every loader's cached pictures for the id, so the next Get decodes the new one.</summary>
+    public static void Forget(string id)
+    {
+        lock (Instances)
+        {
+            Instances.RemoveAll(w => !w.TryGetTarget(out _));
+            foreach (var w in Instances)
+                if (w.TryGetTarget(out var loader))
+                    lock (loader._gate)
+                    {
+                        loader._cache.Remove(Key(id, false));
+                        loader._cache.Remove(Key(id, true));
+                    }
+        }
+    }
+
+    /// <summary>Decodes a picture file; <paramref name="crop"/> centre-crops it to a square. Null if it cannot be read.</summary>
+    private static ImageSource? DecodeFile(string file, int sizePx, bool crop, bool rejectTiny = false)
+    {
+        try
+        {
+            var image = new BitmapImage();
+            image.BeginInit();
+            image.CacheOption = BitmapCacheOption.OnLoad;
+            image.UriSource = new Uri(file);
+            image.DecodePixelHeight = sizePx * 2; // enough for a 2x screen, small in memory
+            image.EndInit();
+            // Steam's CDN answers a missing capsule with a tiny placeholder; that is "no cover", not art.
+            if (rejectTiny && (image.PixelWidth < 64 || image.PixelHeight < 64)) return null;
+            var side = Math.Min(image.PixelWidth, image.PixelHeight);
+            ImageSource result = !crop || image.PixelWidth == image.PixelHeight
+                ? image
+                : new CroppedBitmap(image, new System.Windows.Int32Rect((image.PixelWidth - side) / 2, (image.PixelHeight - side) / 2, side, side));
+            result.Freeze();
+            return result;
+        }
+        catch (Exception ex) when (ex is NotSupportedException or System.IO.IOException or ArgumentException or UriFormatException)
+        {
+            return null; // a broken file; callers fall back
+        }
     }
 
     // The shell hands back a 32-bit DIB with premultiplied alpha. WPF's
