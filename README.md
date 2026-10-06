@@ -1,6 +1,5 @@
 # BlueApex
 ![alt-text](./screenshot.png)
-![alt-text](./screenshot_2.png)
 Windows 11 바탕화면 트레이 앱
 
 - **홈 화면**: 위젯 + 꺼내둔 앱 아이콘
