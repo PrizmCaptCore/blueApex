@@ -11,9 +11,10 @@ Windows 11 바탕화면 트레이 앱
 
 ## 설치
 
-[Releases](https://github.com/PrizmCaptCore/blueApex/releases)에서 `BlueApex-Setup-<버전>.exe`를 받아 실행. Windows 11 (24H2 이후 권장).
-코드 서명을 따로 구매하지 않았습니다. smart screen 차단이 떠도 어쩔 수 없는 부분 입니다. 직접 빌드시 뜨지 않습니다만, 귀찮으실 경우 그냥 사용하셔도 무방합니다.
-단, github release 이외의 다른 경로로 얻은 SW라면 주의해주세요.
+[Releases](https://github.com/PrizmCaptCore/blueApex/releases)에서 `BlueApex-Setup-<버전>.exe`를 받아 실행. Windows 11 (24H2 이후 권장).<br>
+코드 서명을 따로 구매하지 않았습니다. smart screen 차단이 떠도 어쩔 수 없는 부분 입니다. <br>
+직접 빌드시 뜨지 않습니다만, 귀찮으실 경우 그냥 사용하셔도 무방합니다.<br>
+단, github release 이외의 다른 경로로 얻은 SW라면 주의해주세요.<br>
 
 ## 소스로 실행
 
