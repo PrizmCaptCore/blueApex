@@ -60,10 +60,9 @@ build/
     ZoneWidget.cs        구역/게임 격자 위젯. IInternalWidget(클릭 위치·자기 크기)은 내장 전용이라 SDK에 없다. 서랍은 DrawerManager.RequestWidget으로 요청만 한다.
     WidgetSpec.cs        저장 형식(종류, 위치, 크기, 설정 문자열).
 
-  Zones/                 구역 데이터 + 옛 바탕화면 구역 방식
-    Zone.cs, LayoutStore.cs, ZoneRules.cs   ← 지금도 쓴다 (구역 모델, layout.json, 자동 분류 규칙)
-    ZoneMenu.cs                              ← 입력 대화상자(AskText)만 쓴다
-    ZoneManager/ZoneSurface/ZoneLayout/ZoneMouseInteraction/ZoneStyle*/ZoneView  ← 안 쓴다 (Fences식 옛 방식)
+  Zones/                 구역 데이터
+    Zone.cs, LayoutStore.cs, ZoneRules.cs   구역 모델, layout.json, 자동 분류 규칙
+    ZoneMenu.cs                              입력 대화상자(AskText). 이름은 옛 바탕화면 구역 시절의 흔적
 
 src/BlueApex.Sdk/WidgetSdk.cs   플러그인 계약 네 가지(IWidgetProvider, IWidget, IWidgetContext, WidgetMenuItem)
 samples/                        플러그인 예제(날씨, 미디어)
@@ -107,7 +106,7 @@ OnExit
 **새 폴더 / 폴더 포털** — 카드 우클릭 "새 폴더 만들기" → `DrawerManager.CreateFolder(zone, name)`: `DesktopCatalog.CreateDesktopFolder`로 바탕화면에 만들고,
 `Refresh()`로 목록에 먼저 넣은 뒤(폴링이 "새 항목"으로 오해하지 않도록) 구역에 추가하고 숨긴다.
 포털은 `Zone.PortalPath`가 있는 구역이다. `IconsOf(zone)`가 멤버 대신 `DesktopCatalog.EnumerateFolder(path)`를 돌려주고,
-서랍은 `IsDesktopItem(id)`가 false인 타일(포털 파일)에는 끌기·꺼내기·구역 이동을 주지 않는다. 포털은 규칙·기본 구역 대상에서도 빠진다(`RuleZones`).
+서랍은 `IsDesktopItem(id)`가 false인 타일(포털 파일)에는 끌기·꺼내기·구역 이동을 주지 않는다. 포털은 규칙·기본 구역 대상에서도 빠지고, 드롭 대상도 아니다(`MoveToZone`이 무시하고 카드도 드롭을 받지 않는다).
 
 **게임 카드** — `DrawerManager.Games`는 `GameCatalog.Scan()`을 백그라운드에서 돌려 채운다. 서랍은 `BuildGamesCard`로
 카드를 만들고, 포털과 같은 `LazyTiles`로 한 페이지씩 타일을 만든다. 검색어가 있으면 `LazyTiles.BuildMatching`이 아직 안 만든 타일 중
@@ -128,7 +127,7 @@ OnExit
 - **훅 콜백 안에서는 아무것도 하지 않는다.** `DesktopLayerInput.HookCallback`은 좌표 비교만 하고 실제 일은
   `_dispatcher.BeginInvoke(...)`로 넘긴다. 훅 안에서 COM 호출을 하면 Windows가 거부하고(RPC_E_CANTCALLOUT_ININPUTSYNCCALL),
   예외가 새어 나가면 프로세스가 죽으면서 마우스가 멈춘다. 그래서 전체가 try/catch로 싸여 있다.
-- **아이콘 위치는 건드리지 않는다.** 숨김 속성만 쓴다. 옛 방식(좌표를 화면 밖으로)은 탐색기가 되돌려서 포기했다. `Zones/`의 옛 코드가 그 흔적이다.
+- **아이콘 위치는 건드리지 않는다.** 숨김 속성만 쓴다. 옛 방식(좌표를 화면 밖으로)은 탐색기가 되돌려서 포기했고, 그 코드는 0.4.1에서 지웠다.
 - **상태는 `DrawerManager` 한 곳에.** 창·버튼·위젯은 묻고 요청만 한다. 저장은 `Save()` 한 함수.
 - **바탕화면 층 창은 세 가지 제약**이 있다(`DesktopLayerWindow` 주석): 레이어드 자식 창만 보임, 창 전체 투명도만 됨, 소프트웨어 렌더링.
   이건 Windows 11 24H2+의 바탕화면 구조 때문이고 실험으로 확인한 사실이다.

@@ -151,7 +151,14 @@ public partial class App : Application
         try
         {
             _drawer = new DrawerManager();
-            Autostart.MigrateFromRunKey();
+            try
+            {
+                Autostart.MigrateFromRunKey();
+            }
+            catch (Exception ex) // housekeeping only: whatever goes wrong here must not stop the app
+            {
+                Log.Write($"autostart migration error: {ex}");
+            }
             Updater.CleanTemp();
             _window = new DrawerWindow(_drawer);
             _hotkey = new Hotkey(_window, _drawer.Hotkey, ToggleDrawer);

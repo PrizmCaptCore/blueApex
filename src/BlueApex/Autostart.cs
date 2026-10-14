@@ -77,14 +77,29 @@ internal static class Autostart
         try
         {
             // Keep pointing at whatever the old entry started (the installed copy), not necessarily this exe.
-            var exe = value.Trim().StartsWith('"') ? value.Trim()[1..value.Trim().IndexOf('"', 1)] : value.Trim().Split(' ')[0];
-            Set(true, System.IO.File.Exists(exe) ? exe : null);
+            // A malformed value (no closing quote, empty) just falls back to the running exe.
+            var exe = ExeFromCommand(value);
+            Set(true, exe != null && System.IO.File.Exists(exe) ? exe : null);
             Log.Write("autostart: moved from Run key to a logon task");
         }
-        catch (Exception ex) when (ex is COMException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is COMException or UnauthorizedAccessException or ArgumentException or System.IO.IOException)
         {
+            // Never let a stale registry value stop the app from starting.
             Log.Write($"autostart migration failed: {ex.Message}");
         }
+    }
+
+    // "C:\path\app.exe" --args  or  C:\path\app.exe --args  ->  C:\path\app.exe; null if unreadable.
+    private static string? ExeFromCommand(string command)
+    {
+        var text = command.Trim();
+        if (text.Length == 0) return null;
+        if (text[0] == '"')
+        {
+            var close = text.IndexOf('"', 1);
+            return close > 1 ? text[1..close] : null;
+        }
+        return text.Split(' ')[0];
     }
 
     private static object Service()

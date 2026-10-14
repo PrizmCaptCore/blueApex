@@ -303,18 +303,23 @@ internal sealed class DrawerWindow : Window
         var (card, body, header) = parts;
         var tiles = new WrapPanel();
         body.Children.Add(tiles);
-        card.AllowDrop = true;
+        // A portal shows a folder's files, not members, so it is no drop target: an icon dropped
+        // there would leave every zone and show up nowhere.
+        card.AllowDrop = !zone.IsPortal;
         card.Tag = zone;
         var idle = card.Background;
         var hover = Theme.CardHover;
-        card.Drop += (_, e) =>
+        if (!zone.IsPortal)
         {
-            card.Background = idle;
-            foreach (var id in DroppedIds(e.Data)) _drawer.MoveToZone(id, zone);
-        };
-        card.DragEnter += (_, e) => { if (e.Data.GetDataPresent(DragFormat)) card.Background = hover; };
-        card.DragLeave += (_, _) => card.Background = idle;
-        card.DragOver += (_, e) => e.Effects = e.Data.GetDataPresent(DragFormat) ? DragDropEffects.Move : DragDropEffects.None;
+            card.Drop += (_, e) =>
+            {
+                card.Background = idle;
+                foreach (var id in DroppedIds(e.Data)) _drawer.MoveToZone(id, zone);
+            };
+            card.DragEnter += (_, e) => { if (e.Data.GetDataPresent(DragFormat)) card.Background = hover; };
+            card.DragLeave += (_, _) => card.Background = idle;
+            card.DragOver += (_, e) => e.Effects = e.Data.GetDataPresent(DragFormat) ? DragDropEffects.Move : DragDropEffects.None;
+        }
 
         var isDefault = _drawer.IsDefault(zone);
         var menu = new ContextMenu();

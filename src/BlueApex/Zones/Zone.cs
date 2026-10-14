@@ -1,31 +1,16 @@
 namespace BlueApex.Zones;
 
 /// <summary>
-/// A zone: a titled rectangle on the desktop (icon-view coordinates, physical
-/// pixels) and the ordered list of icons laid out inside it. Serialized to the
-/// layout file as-is.
+/// A zone: one card in the drawer, holding an ordered list of icons (or, for a portal,
+/// showing a folder's contents). Serialized to the layout file as-is.
 /// </summary>
 internal sealed class Zone
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Title { get; set; } = "새 구역";
-    public int X { get; set; }
-    public int Y { get; set; }
-    public int Width { get; set; }
-    public int Height { get; set; }
 
     /// <summary>Folded: the card in the drawer shows only its title (click the title to toggle).</summary>
     public bool Rolled { get; set; }
-
-    /// <summary>
-    /// Title bar at the bottom edge instead of the top: the body opens upward from it.
-    /// Set when a rolled zone sitting near the bottom of the screen is unrolled.
-    /// X/Y stay the top-left of the full box either way.
-    /// </summary>
-    public bool HeaderAtBottom { get; set; }
-
-    /// <summary>This zone's own look; null means the layout's default style.</summary>
-    public ZoneStyle? Style { get; set; }
 
     /// <summary>
     /// A "portal": instead of members, the card shows the live contents of this

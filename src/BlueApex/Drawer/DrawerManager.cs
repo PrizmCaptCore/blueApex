@@ -462,6 +462,12 @@ internal sealed class DrawerManager : IDisposable
             _file.Zones.Insert(0, zone);
             _file.DefaultZoneId = zone.Id;
         }
+        // Icons once dropped on a portal card ended up in its member list, which nothing shows; release them.
+        foreach (var portal in _file.Zones.Where(z => z.IsPortal && z.Members.Count > 0))
+        {
+            Log.Write($"portal '{portal.Title}' held {portal.Members.Count} member(s); returned to the default zone");
+            portal.Members.Clear();
+        }
         var owned = _file.Zones.SelectMany(z => z.Members).ToHashSet();
         foreach (var icon in _current.Values.Where(i => !owned.Contains(i.Id)).OrderBy(i => i.Name))
             DefaultZone.Members.Add(icon.Id);
@@ -552,6 +558,8 @@ internal sealed class DrawerManager : IDisposable
 
     public void MoveToZone(string id, Zone? zone)
     {
+        // Portals list a folder, not members; moving an icon "into" one would lose it from every card.
+        if (zone is { IsPortal: true }) return;
         foreach (var z in _file.Zones) z.Members.Remove(id);
         (zone ?? DefaultZone).Members.Add(id);
         Save();

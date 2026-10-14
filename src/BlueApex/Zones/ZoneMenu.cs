@@ -1,85 +1,15 @@
 using System.Windows;
 using System.Windows.Controls;
-using BlueApex.Desktop;
 using BlueApex.Ui;
 
 namespace BlueApex.Zones;
 
-/// <summary>The right-click menu of a zone title bar: rename, add, delete.</summary>
-internal sealed class ZoneMenu : IDisposable
+/// <summary>
+/// The small text-input dialogs the drawer and widgets use (zone name, rules, new folder,
+/// memo...). The name is historical: it used to be the old desktop zones' title-bar menu.
+/// </summary>
+internal static class ZoneMenu
 {
-    private readonly ZoneManager _zones;
-    private readonly System.Windows.Forms.ContextMenuStrip _menu = new();
-    // A menu shown by a process with no foreground window would not close when the
-    // user clicks elsewhere; bringing this invisible form to the front first fixes that.
-    private readonly System.Windows.Forms.Form _owner = new()
-    {
-        ShowInTaskbar = false,
-        FormBorderStyle = System.Windows.Forms.FormBorderStyle.None,
-        StartPosition = System.Windows.Forms.FormStartPosition.Manual,
-        Opacity = 0,
-        Size = new System.Drawing.Size(1, 1),
-    };
-    private Zone? _zone;
-
-    public ZoneMenu(ZoneManager zones)
-    {
-        _zones = zones;
-        _menu.Items.Add("이름 바꾸기", null, (_, _) => Rename());
-        _menu.Items.Add("자동 분류 규칙...", null, (_, _) => EditPatterns());
-        _menu.Items.Add("꾸미기...", null, (_, _) => { if (_zone != null) ZoneStyleDialog.Show(_zones, _zone); });
-        _menu.Items.Add("새 구역", null, (_, _) => _zones.AddZone());
-        _menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
-        _menu.Items.Add("구역 삭제", null, (_, _) => Delete());
-    }
-
-    /// <param name="screenX">Physical screen pixels.</param>
-    public void Show(Zone zone, int screenX, int screenY)
-    {
-        _zone = zone;
-        NativeMethods.SetForegroundWindow(_owner.Handle);
-        _menu.Show(new System.Drawing.Point(screenX, screenY));
-    }
-
-    private void Rename()
-    {
-        if (_zone == null) return;
-        var title = AskTitle(_zone.Title);
-        if (!string.IsNullOrWhiteSpace(title))
-            _zones.RenameZone(_zone, title);
-    }
-
-    private void Delete()
-    {
-        if (_zone == null) return;
-        var answer = MessageBox.Show($"'{_zone.Title}' 구역을 삭제할까요?\n아이콘은 지금 자리에 그대로 남습니다.",
-            "구역 삭제", MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (answer == MessageBoxResult.Yes)
-            _zones.RemoveZone(_zone);
-    }
-
-    private void EditPatterns()
-    {
-        if (_zone == null) return;
-        var text = AskText("자동 분류 규칙: " + _zone.Title, string.Join(Environment.NewLine, _zone.Patterns),
-            "한 줄에 하나씩. 파일 이름에 대한 와일드카드입니다.\n" +
-            "예: *.url    *.lnk    Steam*    folder:*    file:*.pdf\n" +
-            "새로 생기는 아이콘 중 규칙에 맞는 것이 이 구역으로 들어옵니다.", multiline: true);
-        if (text == null) return;
-
-        _zones.SetPatterns(_zone, text.Split('\n'));
-        if (_zone.Patterns.Count == 0) return;
-
-        var apply = MessageBox.Show("구역에 속하지 않은 아이콘에 지금 바로 적용할까요?", "자동 분류 규칙",
-            MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (apply == MessageBoxResult.Yes)
-        {
-            var count = _zones.ApplyRulesToUnowned();
-            MessageBox.Show(count > 0 ? $"아이콘 {count}개를 정리했습니다." : "규칙에 맞는 아이콘이 없습니다.", "자동 분류 규칙",
-                MessageBoxButton.OK, MessageBoxImage.Information);
-        }
-    }
-
     /// <summary>Asks for a zone title in a small dialog; null if cancelled.</summary>
     public static string? AskTitle(string current) => AskText("구역 이름", current, null, multiline: false)?.Trim();
 
@@ -89,6 +19,7 @@ internal sealed class ZoneMenu : IDisposable
         "예: *.url    *.lnk    Steam*    folder:*    file:*.pdf\n" +
         "새로 생기는 아이콘 중 규칙에 맞는 것이 이 구역으로 들어옵니다.";
 
+    /// <summary>Shows a one-box dialog; the entered text, or null if cancelled.</summary>
     public static string? AskText(string title, string current, string? hint, bool multiline)
     {
         var box = new TextBox
@@ -115,11 +46,5 @@ internal sealed class ZoneMenu : IDisposable
             if (!multiline) box.SelectAll();
         };
         return window.ShowDialog() == true ? box.Text : null;
-    }
-
-    public void Dispose()
-    {
-        _menu.Dispose();
-        _owner.Dispose();
     }
 }

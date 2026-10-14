@@ -44,7 +44,7 @@ internal interface IDesktopLayerScrollable
 /// sit below explorer's icon view and never get input of their own, so the hook
 /// turns presses over an item into clicks, drags and right-clicks, and swallows
 /// them so explorer does not see them. Everything heavier than hit-testing is
-/// posted to the dispatcher (see ZoneMouseInteraction for why).
+/// posted to the dispatcher (a COM call inside the hook makes Windows refuse it and kills the process).
 /// </summary>
 internal sealed class DesktopLayerInput : IDisposable
 {

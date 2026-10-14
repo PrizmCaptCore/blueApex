@@ -8,9 +8,6 @@ internal sealed class LayoutFile
 {
     public int Version { get; set; } = 1;
 
-    /// <summary>Look applied to every zone that has no style of its own.</summary>
-    public ZoneStyle DefaultStyle { get; set; } = new();
-
     /// <summary>Zones are the drawer's categories.</summary>
     public List<Zone> Zones { get; set; } = new();
 
