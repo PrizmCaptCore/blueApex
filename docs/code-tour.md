@@ -26,9 +26,9 @@ build/
 
   Desktop/               Windows 바탕화면과 직접 맞닿는 층
     DesktopCatalog.cs    ★ 바탕화면 폴더 두 곳을 읽고, 숨김 속성을 켜고 끄고, 공용 바탕화면 권한을 요청.
-    AppCatalog.cs        설치된 앱 전체 목록(셸 Applications 폴더). id는 "app:..." 형식, 실행은 explorer shell:AppsFolder\id.
-    ShortcutWriter.cs    앱의 .lnk 바로가기 만들기(IShellLink에 앱 pidl을 넣음). "바탕화면에 바로가기 만들기"가 쓴다.
-    DesktopIconView.cs   탐색기의 아이콘 뷰(COM). 셸 항목 목록, 위치 읽기/쓰기, 선택 상태. DesktopIcon 레코드(IsApp/IsGame/IsVirtual)도 여기.
+    NameOrder.cs         이름 정렬(A→Z 먼저, 그다음 가나다). 구역 정렬과 게임 카드가 쓴다.
+    ShortcutWriter.cs    게임의 .url 바로가기 만들기. 게임 타일의 "바탕화면에 바로가기 만들기"가 쓴다.
+    DesktopIconView.cs   탐색기의 아이콘 뷰(COM). 셸 항목 목록, 위치 읽기/쓰기, 선택 상태. DesktopIcon 레코드(IsGame/IsVirtual)도 여기.
     ShellInterop.cs      위 COM 인터페이스들의 C# 선언(vtable 순서). 손대면 안 되는 파일.
     DesktopHost.cs       탐색기의 바탕화면 창 계층(Progman/DefView) 찾기 + Win32 함수 선언(NativeMethods).
     DesktopLayerWindow.cs 아이콘 아래 층에 WPF 내용을 그리는 창. 버튼·위젯이 쓴다.
@@ -109,11 +109,11 @@ OnExit
 포털은 `Zone.PortalPath`가 있는 구역이다. `IconsOf(zone)`가 멤버 대신 `DesktopCatalog.EnumerateFolder(path)`를 돌려주고,
 서랍은 `IsDesktopItem(id)`가 false인 타일(포털 파일)에는 끌기·꺼내기·구역 이동을 주지 않는다. 포털은 규칙·기본 구역 대상에서도 빠진다(`RuleZones`).
 
-**설치된 앱 카드** — `DrawerManager.Apps`는 `AppCatalog.Scan()`(약 0.5초)을 백그라운드에서 돌려 채운다. 서랍은 `BuildAppsCard`로
+**게임 카드** — `DrawerManager.Games`는 `GameCatalog.Scan()`을 백그라운드에서 돌려 채운다. 서랍은 `BuildGamesCard`로
 카드를 만들고, 포털과 같은 `LazyTiles`로 한 페이지씩 타일을 만든다. 검색어가 있으면 `LazyTiles.BuildMatching`이 아직 안 만든 타일 중
-맞는 것을 즉시 만든다. 앱 타일은 `DesktopIcon.IsApp`으로 구분된다. 구역에 끌어 넣으면 `Zone.Members`에 "app:" id가 그대로 들어가고,
-`MembersOf`가 `_appsById`로 되살린다(파일 없음). "바탕화면에 바로가기 만들기"는 `PinApp` → `ShortcutWriter`로 .lnk를 만들고
-그 파일이 구역에서 앱의 자리를 이어받는다.
+맞는 것을 즉시 만든다. 게임 타일은 `DesktopIcon.IsGame`으로 구분된다. 구역에 끌어 넣으면 `Zone.Members`에 "game:" id가 그대로 들어가고,
+`MembersOf`가 `_gamesById`로 되살린다(파일 없음). "바탕화면에 바로가기 만들기"는 `PinGame` → `ShortcutWriter`로 .url을 만들고
+그 파일이 구역에서 게임의 자리를 이어받는다.
 
 **구역 안의 묶음(작은 서랍)** — `Zone.SortMode`가 "manual"이 아니면 `BuildCard`가 `BuildSections`를 부른다. `GroupIcons`가 기준별로
 (글자 `Initial`, 날짜 `LastWrite` 버킷, 종류 `Kind`) 묶음을 만들고, 묶음마다 접힌 머리 줄 + `LazyTiles`(열 때 처음 만듦)를 둔다.

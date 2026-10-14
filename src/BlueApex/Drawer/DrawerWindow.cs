@@ -82,13 +82,13 @@ internal sealed class DrawerWindow : Window
                 {
                     foreach (var id in ids)
                     {
-                        if (IsVirtualId(id)) _drawer.PinApp(id); // an app or game gets a shortcut on the desktop
+                        if (IsVirtualId(id)) _drawer.PinGame(id); // a game gets a shortcut on the desktop
                         else _drawer.Pin(id);
                     }
                 }),
                 BuildDropTarget("휴지통으로", Theme.DangerColor, ids =>
                 {
-                    // Apps and games are not files: dropping one here just takes it out of its zone.
+                    // Games are not files: dropping one here just takes it out of its zone.
                     foreach (var id in ids.Where(IsVirtualId)) _drawer.RemoveMember(id);
                     ConfirmDelete(ids.Select(id => _drawer.Icons.FirstOrDefault(i => i.Id == id)).OfType<DesktopIcon>().Where(i => !i.IsShellItem).ToList());
                 }),
@@ -287,8 +287,6 @@ internal sealed class DrawerWindow : Window
         _sections.Clear();
         foreach (var zone in _drawer.Zones)
             _cards.Children.Add(BuildCard(_drawer.IsDefault(zone) ? zone.Title + "  (기본)" : zone.Title, _drawer.IconsOf(zone), zone));
-        if (_drawer.ShowApps)
-            _cards.Children.Add(BuildAppsCard());
         if (_drawer.ShowGames)
             _cards.Children.Add(BuildGamesCard());
         _cards.Children.Add(BuildAddCard());
@@ -530,7 +528,7 @@ internal sealed class DrawerWindow : Window
             case "type":
             {
                 var order = new[] { "게임", "앱", "바로가기", "폴더", "이미지", "문서", "파일", "시스템" };
-                var sorted = AppCatalog.Sort(icons, _drawer.AppSortLatinFirst);
+                var sorted = NameOrder.Sort(icons, _drawer.LatinFirst);
                 foreach (var label in order)
                 {
                     var hit = sorted.Where(i => Kind(i) == label).ToList();
@@ -540,7 +538,7 @@ internal sealed class DrawerWindow : Window
             }
             default: // "name": first letter, in the same order as the sort setting
             {
-                var sorted = AppCatalog.Sort(icons, _drawer.AppSortLatinFirst);
+                var sorted = NameOrder.Sort(icons, _drawer.LatinFirst);
                 foreach (var group in sorted.GroupBy(i => Initial(i.Name)))
                     yield return (group.Key, group.ToList());
                 yield break;
@@ -548,7 +546,7 @@ internal sealed class DrawerWindow : Window
         }
     }
 
-    private static bool IsVirtualId(string id) => AppCatalog.IsAppId(id) || GameCatalog.IsGameId(id);
+    private static bool IsVirtualId(string id) => GameCatalog.IsGameId(id);
 
     private static DateTime? LastWrite(DesktopIcon icon)
     {
@@ -566,7 +564,6 @@ internal sealed class DrawerWindow : Window
     private static string Kind(DesktopIcon icon)
     {
         if (icon.IsGame) return "게임";
-        if (icon.IsApp) return "앱";
         if (icon.IsShellItem) return "시스템";
         if (System.IO.Directory.Exists(icon.Id)) return "폴더";
         var ext = System.IO.Path.GetExtension(icon.Id).ToLowerInvariant();
@@ -589,36 +586,6 @@ internal sealed class DrawerWindow : Window
         if (char.IsDigit(c)) return "0-9";
         if (c < 0x0250 && char.IsLetter(c)) return char.ToUpperInvariant(c).ToString();
         return "#";
-    }
-
-    /// <summary>The card listing every installed app (from the shell's Applications folder), paged like a portal.</summary>
-    private Border BuildAppsCard()
-    {
-        var apps = _drawer.Apps;
-        var selector = SortSelector(_drawer.AppSections ? "letters" : "flat",
-            mode => _drawer.AppSections = mode == "letters", ("flat", "전체"), ("letters", "글자별"));
-        var parts = Parts.Card(apps.Count > 0 ? $"모든 앱  ({apps.Count})" : "모든 앱  (불러오는 중...)", selector, alternate: true, folded: _drawer.AppsFolded);
-        parts.Folded = folded => _drawer.AppsFolded = folded;
-        var (card, body, _) = parts;
-        var tiles = new WrapPanel();
-        body.Children.Add(tiles);
-        var menu = new ContextMenu();
-        var latin = _drawer.AppSortLatinFirst;
-        menu.Items.Add(MenuItem((latin ? "● " : "○ ") + "정렬: A→Z 먼저, 그다음 가나다", () => _drawer.AppSortLatinFirst = true));
-        menu.Items.Add(MenuItem((latin ? "○ " : "● ") + "정렬: 가나다 먼저, 그다음 A→Z", () => _drawer.AppSortLatinFirst = false));
-        menu.Items.Add(new Separator());
-        menu.Items.Add(MenuItem("설치된 앱 카드 숨기기 (트레이 메뉴에서 다시 켤 수 있음)", () => _drawer.ShowApps = false));
-        card.ContextMenu = menu;
-        if (_drawer.AppSections)
-        {
-            body.Children.Remove(tiles);
-            BuildSections(body, apps.ToList(), "name", "apps");
-        }
-        else
-        {
-            AddTiles(body, tiles, apps, _drawer.PortalRows * TilesPerRow);
-        }
-        return card;
     }
 
     /// <summary>The card listing games from Steam, Epic Games and GOG (installed, plus owned ones when the account is linked).</summary>
@@ -937,7 +904,7 @@ internal sealed class DrawerWindow : Window
             menu.Items.Add(new Separator());
             menu.Items.Add(MenuItem($"{label} 바탕화면에 바로가기 만들기".Trim(), () =>
             {
-                foreach (var id in appIds) _drawer.PinApp(id);
+                foreach (var id in appIds) _drawer.PinGame(id);
             }));
             return menu;
         }

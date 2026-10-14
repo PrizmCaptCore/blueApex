@@ -217,10 +217,6 @@ public partial class App : Application
         FillBackupMenu(backups);
         menu.Items.Add(backups);
 
-        var showApps = new System.Windows.Forms.ToolStripMenuItem("서랍에 설치된 앱 전부 표시") { CheckOnClick = true, Checked = _drawer.ShowApps };
-        showApps.CheckedChanged += (_, _) => _drawer.ShowApps = showApps.Checked;
-        menu.Opening += (_, _) => showApps.Checked = _drawer.ShowApps;
-        menu.Items.Add(showApps);
         var showGames = new System.Windows.Forms.ToolStripMenuItem("서랍에 게임 라이브러리 표시 (Steam / Epic / GOG)") { CheckOnClick = true, Checked = _drawer.ShowGames };
         showGames.CheckedChanged += (_, _) => _drawer.ShowGames = showGames.Checked;
         menu.Opening += (_, _) => showGames.Checked = _drawer.ShowGames;

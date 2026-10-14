@@ -30,20 +30,13 @@ internal sealed class LayoutFile
     public int? ButtonX { get; set; }
     public int? ButtonY { get; set; }
 
-    /// <summary>How many rows of a portal folder (or the all-apps card) the drawer shows before "더 보기" is needed.</summary>
+    /// <summary>How many rows of a portal folder (or the games card) the drawer shows before "더 보기" is needed.</summary>
     public int PortalRows { get; set; } = 4;
 
-    /// <summary>Whether the drawer ends with a card listing every installed app.</summary>
-    public bool ShowApps { get; set; } = true;
-
-    /// <summary>Order of the all-apps card: "latin" (A→Z first, then 가나다) or "hangul" (가나다 first).</summary>
+    /// <summary>Name order in the drawer: "latin" (A→Z first, then 가나다) or "hangul" (가나다 first).</summary>
     public string AppSort { get; set; } = "latin";
 
-    /// <summary>All-apps card folded into per-letter groups instead of one flat list.</summary>
-    public bool AppSections { get; set; }
-
-    /// <summary>The all-apps / games cards collapsed to their title (zones keep this in <see cref="Zone.Rolled"/>).</summary>
-    public bool AppsFolded { get; set; }
+    /// <summary>The games card collapsed to its title (zones keep this in <see cref="Zone.Rolled"/>).</summary>
     public bool GamesFolded { get; set; }
 
     /// <summary>Whether the drawer has a card listing games from Steam / Epic / GOG.</summary>

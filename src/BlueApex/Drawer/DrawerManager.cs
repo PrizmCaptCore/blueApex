@@ -59,7 +59,6 @@ internal sealed class DrawerManager : IDisposable
         EnsureDefaultZone();
         Reconcile();
         Save();
-        RescanApps(); // zones may hold app members even when the all-apps card is off
         RescanGames();
 
         _poll = new DispatcherTimer(DispatcherPriority.Background) { Interval = PollInterval };
@@ -82,34 +81,24 @@ internal sealed class DrawerManager : IDisposable
     /// <summary>Whether an id is a desktop item this app manages (as opposed to a file shown through a portal).</summary>
     public bool IsDesktopItem(string id) => _current.ContainsKey(id);
 
-    // Members are desktop items, or installed apps ("app:" ids) that were dragged in from
-    // the all-apps card; those resolve against the app list and need no file on the desktop.
+    // Members are desktop items, or games ("game:" ids) dragged in from the games card;
+    // those resolve against the game list and need no file on the desktop.
     private IEnumerable<DesktopIcon> MembersOf(Zone zone) =>
-        zone.Members.Select(id => _current.GetValueOrDefault(id) ?? _appsById.GetValueOrDefault(id) ?? _gamesById.GetValueOrDefault(id)).OfType<DesktopIcon>();
+        zone.Members.Select(id => _current.GetValueOrDefault(id) ?? _gamesById.GetValueOrDefault(id)).OfType<DesktopIcon>();
 
-    private Dictionary<string, DesktopIcon> _appsById = new();
-
-    /// <summary>Whether an id can be put in a zone: a desktop item, an installed app or a game.</summary>
-    public bool CanBeMember(string id) => _current.ContainsKey(id) || AppCatalog.IsAppId(id) || GameCatalog.IsGameId(id);
+    /// <summary>Whether an id can be put in a zone: a desktop item or a game.</summary>
+    public bool CanBeMember(string id) => _current.ContainsKey(id) || GameCatalog.IsGameId(id);
 
     /// <summary>
-    /// Puts a shortcut to the app (or game) on the desktop (visible, pinned) and lets it take
-    /// the app's place in its zone, so the zone shows the shortcut from now on.
+    /// Puts a shortcut to the game on the desktop (visible, pinned) and lets it take the
+    /// game's place in its zone, so the zone shows the shortcut from now on.
     /// </summary>
-    public DesktopIcon PinApp(string appId)
+    public DesktopIcon PinGame(string gameId)
     {
-        string path;
-        if (GameCatalog.IsGameId(appId))
-        {
-            var game = GameCatalog.Find(appId) ?? throw new InvalidOperationException("unknown game " + appId);
-            var (url, iconFile) = GameCatalog.ShortcutTarget(game);
-            path = ShortcutWriter.CreateUrlShortcut(game.Name, url, iconFile, DesktopCatalog.UserDesktop);
-        }
-        else
-        {
-            var name = _appsById.GetValueOrDefault(appId)?.Name ?? appId[AppCatalog.IdPrefix.Length..];
-            path = ShortcutWriter.CreateAppShortcut(appId, name, DesktopCatalog.UserDesktop);
-        }
+        var game = GameCatalog.Find(gameId) ?? throw new InvalidOperationException("unknown game " + gameId);
+        var (url, iconFile) = GameCatalog.ShortcutTarget(game);
+        var path = ShortcutWriter.CreateUrlShortcut(game.Name, url, iconFile, DesktopCatalog.UserDesktop);
+        var appId = gameId;
         Refresh(); // the poll must not see the new file as "new" and hide it
         var zone = ZoneOf(appId);
         foreach (var z in _file.Zones) z.Members.Remove(appId);
@@ -117,7 +106,7 @@ internal sealed class DrawerManager : IDisposable
         if (!_file.Pinned.Contains(path)) _file.Pinned.Add(path);
         Save();
         Changed?.Invoke();
-        Log.Write($"app shortcut {path} pinned");
+        Log.Write($"game shortcut {path} pinned");
         return _current[path];
     }
 
@@ -225,36 +214,8 @@ internal sealed class DrawerManager : IDisposable
 
     public string BackupNow() => BackupStore.Save(_icons.GetIcons());
 
-    // --- installed apps ---
-
-    private static readonly TimeSpan AppRescanInterval = TimeSpan.FromMinutes(10);
-    private List<DesktopIcon> _apps = new();
-    private DateTime _appsScanned = DateTime.MinValue;
-    private bool _appsScanning;
-
-    /// <summary>Every installed app, by name. Empty until the first background scan has finished.</summary>
-    public IReadOnlyList<DesktopIcon> Apps
-    {
-        get
-        {
-            if (!_appsScanning && DateTime.UtcNow - _appsScanned > AppRescanInterval)
-                RescanApps();
-            return _apps;
-        }
-    }
-
-    /// <summary>All-apps order: true = A→Z first then 가나다, false = the culture's order (가나다 first on Korean Windows).</summary>
-    public bool AppSortLatinFirst
-    {
-        get => _file.AppSort != "hangul";
-        set
-        {
-            _file.AppSort = value ? "latin" : "hangul";
-            _apps = AppCatalog.Sort(_apps, value);
-            Save();
-            Changed?.Invoke();
-        }
-    }
+    /// <summary>Name order: A→Z first, then 가나다 (layout.json AppSort = "hangul" flips it).</summary>
+    public bool LatinFirst => _file.AppSort != "hangul";
 
     /// <summary>Sets how a zone's card is laid out: "manual", "name", "date" or "type".</summary>
     public void SetSortMode(Zone zone, string mode)
@@ -264,70 +225,20 @@ internal sealed class DrawerManager : IDisposable
         Changed?.Invoke();
     }
 
-    public bool AppSections
-    {
-        get => _file.AppSections;
-        set
-        {
-            _file.AppSections = value;
-            Save();
-            Changed?.Invoke();
-        }
-    }
-
     /// <summary>Reorders a zone's members by name, once (drag order is kept otherwise).</summary>
     public void SortZone(Zone zone)
     {
         var icons = MembersOf(zone).ToList();
-        var sorted = AppCatalog.Sort(icons, AppSortLatinFirst).Select(i => i.Id).ToList();
+        var sorted = NameOrder.Sort(icons, LatinFirst).Select(i => i.Id).ToList();
         var missing = zone.Members.Where(id => !sorted.Contains(id)); // members not on the desktop right now keep their place at the end
         zone.Members = sorted.Concat(missing).ToList();
         Save();
         Changed?.Invoke();
     }
 
-    public bool ShowApps
-    {
-        get => _file.ShowApps;
-        set
-        {
-            _file.ShowApps = value;
-            Save();
-            Changed?.Invoke();
-        }
-    }
-
-    // Enumerating the Applications folder takes ~0.5 s, so it runs off the UI thread.
-    private void RescanApps()
-    {
-        _appsScanning = true;
-        var dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
-        _ = Task.Run(() =>
-        {
-            List<DesktopIcon> apps;
-            try
-            {
-                apps = AppCatalog.Scan();
-            }
-            catch (Exception ex) when (ex is COMException or InvalidCastException)
-            {
-                Log.Write($"app scan failed: {ex.Message}");
-                apps = _apps;
-            }
-            dispatcher.BeginInvoke(() =>
-            {
-                var changed = apps.Count != _apps.Count;
-                _apps = AppCatalog.Sort(apps, AppSortLatinFirst);
-                _appsById = apps.ToDictionary(a => a.Id);
-                _appsScanned = DateTime.UtcNow;
-                _appsScanning = false;
-                if (changed) Changed?.Invoke();
-            });
-        });
-    }
-
     // --- games (Steam / Epic / GOG) ---
 
+    private static readonly TimeSpan GameRescanInterval = TimeSpan.FromMinutes(10);
     private List<DesktopIcon> _games = new();
     private Dictionary<string, DesktopIcon> _gamesById = new();
     private DateTime _gamesScanned = DateTime.MinValue;
@@ -338,7 +249,7 @@ internal sealed class DrawerManager : IDisposable
     {
         get
         {
-            if (!_gamesScanning && DateTime.UtcNow - _gamesScanned > AppRescanInterval)
+            if (!_gamesScanning && DateTime.UtcNow - _gamesScanned > GameRescanInterval)
                 RescanGames();
             return ShowUninstalledGames ? _games : _games.Where(g => GameOf(g.Id)?.Installed == true).ToList();
         }
@@ -406,12 +317,6 @@ internal sealed class DrawerManager : IDisposable
         Save();
     }
 
-    public bool AppsFolded
-    {
-        get => _file.AppsFolded;
-        set { _file.AppsFolded = value; Save(); }
-    }
-
     public bool GamesFolded
     {
         get => _file.GamesFolded;
@@ -473,7 +378,7 @@ internal sealed class DrawerManager : IDisposable
             var linked = _file.SteamLinked;
             var games = await Task.Run(() => GameCatalog.Scan(linked).Select(g => new DesktopIcon(g.Id, g.Name, 0, 0, false)).ToList());
             var changed = !games.Select(g => g.Id).ToHashSet().SetEquals(_games.Select(g => g.Id)); // added or removed, not just a different count
-            _games = AppCatalog.Sort(games, AppSortLatinFirst);
+            _games = NameOrder.Sort(games, LatinFirst);
             _gamesById = games.ToDictionary(g => g.Id);
             _gamesScanned = DateTime.UtcNow;
             if (changed) Changed?.Invoke();
@@ -680,12 +585,6 @@ internal sealed class DrawerManager : IDisposable
         if (icon.IsGame)
         {
             if (GameCatalog.Find(icon.Id) is { } game) GameCatalog.Launch(game);
-            return;
-        }
-        if (icon.IsApp)
-        {
-            // The same route the Start menu uses; works for Store apps and classic programs alike.
-            Process.Start("explorer.exe", AppCatalog.ParsingName(icon.Id));
             return;
         }
         var file = icon.IsShellItem ? "shell:" + icon.Id : icon.Id;
