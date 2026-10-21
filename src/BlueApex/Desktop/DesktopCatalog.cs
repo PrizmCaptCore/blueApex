@@ -19,6 +19,17 @@ internal static class DesktopCatalog
 
     public static List<DesktopIcon> Scan(DesktopIconView view)
     {
+        var icons = ScanFiles();
+        icons.AddRange(view.GetIcons().Where(i => i.IsShellItem));
+        return icons;
+    }
+
+    /// <summary>
+    /// The files and folders on both desktops, read straight from disk. Unlike <see cref="Scan"/> this
+    /// does not touch explorer's icon view, so it keeps working while explorer restarts (installers do that).
+    /// </summary>
+    public static List<DesktopIcon> ScanFiles()
+    {
         var icons = new List<DesktopIcon>();
         foreach (var folder in new[] { UserDesktop, PublicDesktop })
         {
@@ -30,15 +41,14 @@ internal static class DesktopCatalog
                 {
                     attributes = File.GetAttributes(path);
                 }
-                catch (IOException)
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    continue; // vanished mid-scan
+                    continue; // vanished or locked mid-scan (an installer still writing it); next poll sees it
                 }
                 if (attributes.HasFlag(FileAttributes.System)) continue; // desktop.ini and the like
                 icons.Add(new DesktopIcon(path, DisplayName(path), 0, 0, false, attributes.HasFlag(FileAttributes.Hidden)));
             }
         }
-        icons.AddRange(view.GetIcons().Where(i => i.IsShellItem));
         return icons;
     }
 

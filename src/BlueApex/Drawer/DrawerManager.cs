@@ -24,7 +24,7 @@ internal sealed class DrawerManager : IDisposable
     private const string RecycleBinId = "::{645FF040-5081-101B-9F08-00AA002F954E}";
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(1000);
 
-    private readonly DesktopIconView _icons;
+    private DesktopIconView _icons; // replaced when explorer restarts (see ShellItems)
     private readonly DispatcherTimer _poll;
     private readonly LayoutFile _file;
     private readonly HashSet<string> _cannotHide = new(); // files whose attributes we may not change
@@ -645,23 +645,59 @@ internal sealed class DrawerManager : IDisposable
 
     private void Refresh()
     {
-        _current = DesktopCatalog.Scan(_icons).ToDictionary(i => i.Id);
+        var icons = DesktopCatalog.ScanFiles();
+        icons.AddRange(ShellItems());
+        _current = icons.ToDictionary(i => i.Id);
     }
 
     /// <summary>Runs the poll right away.</summary>
     public void PollNow() => Poll();
+
+    private const int RetryHideEvery = 5; // polls (~5 s)
+    private int _pollCount;
+
+    // Explorer's view of the desktop, for shell items; on failure reconnect once, and if explorer is
+    // not back yet keep the shell items we already know so they are not mistaken for "removed".
+    private IEnumerable<DesktopIcon> ShellItems()
+    {
+        try
+        {
+            return _icons.GetIcons().Where(i => i.IsShellItem).ToList();
+        }
+        catch (Exception ex) when (ex is COMException or InvalidCastException or InvalidOperationException)
+        {
+            try
+            {
+                _icons = DesktopIconView.Connect();
+                Log.Write("explorer's desktop view reconnected");
+                return _icons.GetIcons().Where(i => i.IsShellItem).ToList();
+            }
+            catch (Exception again) when (again is COMException or InvalidCastException or InvalidOperationException)
+            {
+                return _current.Values.Where(i => i.IsShellItem).ToList();
+            }
+        }
+    }
 
     private void Poll()
     {
         List<DesktopIcon> icons;
         try
         {
-            icons = DesktopCatalog.Scan(_icons);
+            icons = DesktopCatalog.ScanFiles();
         }
-        catch (Exception ex) when (ex is COMException or InvalidCastException or IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return; // explorer busy or restarting; try again next tick
+            return; // the desktop folder itself is unreadable for a moment; try again next tick
         }
+        // Shell items (Recycle Bin...) come from explorer's view. Installers often restart explorer,
+        // which kills that view; the files above are still sorted meanwhile, and the view is reconnected.
+        icons.AddRange(ShellItems());
+
+        // Files that could not be hidden are retried every few seconds: an installer may still have
+        // been writing the shortcut, or the public-desktop rights were granted since.
+        if (++_pollCount % RetryHideEvery == 0 && _cannotHide.Count > 0)
+            _cannotHide.Clear();
 
         var changed = false;
         var seen = icons.Select(i => i.Id).ToHashSet();
@@ -679,7 +715,11 @@ internal sealed class DrawerManager : IDisposable
                 if (!IsPinned(icon.Id) && !icon.IsShellItem)
                 {
                     Hide(icon.Id);
-                    Notice?.Invoke("서랍에 넣었습니다", $"{icon.Name} → {target.Title}");
+                    // If hiding failed (installer still writing it), the retry a few seconds later puts it away.
+                    if (!_cannotHide.Contains(icon.Id))
+                        Notice?.Invoke("서랍에 넣었습니다", $"{icon.Name} → {target.Title}");
+                    else
+                        Log.Write($"could not hide {icon.Name} yet; will retry");
                 }
                 changed = true;
             }
