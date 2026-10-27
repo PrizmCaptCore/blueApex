@@ -52,9 +52,14 @@ internal static class DesktopCatalog
         return icons;
     }
 
-    /// <summary>Sets or clears the Hidden attribute. False when the file cannot be changed (typically the public desktop without rights).</summary>
+    /// <summary>
+    /// Sets or clears the Hidden attribute. False when the file cannot be changed (typically the public desktop without rights).
+    /// Shell items ("::{CLSID}", e.g. the Recycle Bin) have no attribute; they go through explorer's per-user
+    /// "desktop icons" setting instead (see <see cref="SetShellItemHidden"/>).
+    /// </summary>
     public static bool SetHidden(string path, bool hidden)
     {
+        if (path.StartsWith("::", StringComparison.Ordinal)) return SetShellItemHidden(path, hidden);
         try
         {
             var attributes = File.GetAttributes(path);
@@ -144,6 +149,38 @@ internal static class DesktopCatalog
         Directory.CreateDirectory(path);
         return path;
     }
+
+    // The same switch as Settings > Personalization > Themes > Desktop icon settings: per user, no admin.
+    private const string HideDesktopIconsKey = @"Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons\NewStartPanel";
+
+    /// <summary>Whether explorer's desktop-icon setting currently hides this shell item.</summary>
+    public static bool IsShellItemHidden(string id)
+    {
+        using var key = Registry.CurrentUser.OpenSubKey(HideDesktopIconsKey);
+        return key?.GetValue(id[2..]) is int value && value != 0;
+    }
+
+    /// <summary>Shows or hides a shell item ("::{CLSID}") on the desktop, then asks explorer to redraw it.</summary>
+    private static bool SetShellItemHidden(string id, bool hidden)
+    {
+        try
+        {
+            using (var key = Registry.CurrentUser.CreateSubKey(HideDesktopIconsKey))
+                key.SetValue(id[2..], hidden ? 1 : 0, RegistryValueKind.DWord);
+            SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, IntPtr.Zero, IntPtr.Zero); // the desktop re-reads the setting
+            return true;
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or System.Security.SecurityException)
+        {
+            return false;
+        }
+    }
+
+    private const int SHCNE_ASSOCCHANGED = 0x08000000;
+    private const uint SHCNF_IDLIST = 0;
+
+    [DllImport("shell32.dll")]
+    private static extern void SHChangeNotify(int eventId, uint flags, IntPtr item1, IntPtr item2);
 
     // The name explorer shows: no ".lnk"/".url", and extensions per the user's setting.
     public static string DisplayName(string path)

@@ -47,15 +47,16 @@ internal sealed class DrawerManager : IDisposable
         BackupStore.Save(_icons.GetIcons()); // the desktop as found
 
         _file = LayoutStore.Load();
-        if (_file.Version < 3)
+        if (_file.Version < 4)
         {
-            // Drawer mode: keep the Recycle Bin at hand, everything else goes into the drawer.
-            _file.Version = 3;
-            if (!_file.Pinned.Contains(RecycleBinId)) _file.Pinned.Add(RecycleBinId);
+            // Since 0.4.2 the Recycle Bin lives in the drawer like everything else (it used to be pinned).
+            // Pinning its tile brings it back to the desktop.
+            _file.Version = 4;
+            _file.Pinned.Remove(RecycleBinId);
         }
 
         IconLoader.CustomImage = CustomImageOf;
-        _current = DesktopCatalog.Scan(_icons).ToDictionary(i => i.Id);
+        Refresh();
         EnsureDefaultZone();
         Reconcile();
         Save();
@@ -112,10 +113,10 @@ internal sealed class DrawerManager : IDisposable
 
     /// <summary>Pinned, or a shell item (which cannot be hidden), or a file we lack the rights to hide.</summary>
     public bool IsOnDesktop(string id) =>
-        _file.Pinned.Contains(id) || (_current.TryGetValue(id, out var icon) && icon.IsShellItem) || _cannotHide.Contains(id);
+        _file.Pinned.Contains(id) || _cannotHide.Contains(id);
 
     public bool IsPinned(string id) => _file.Pinned.Contains(id);
-    public bool CanToggle(string id) => _current.TryGetValue(id, out var icon) && !icon.IsShellItem;
+    public bool CanToggle(string id) => _current.ContainsKey(id);
 
     public Zone? ZoneOf(string id) => _file.Zones.FirstOrDefault(z => z.Members.Contains(id));
 
@@ -144,7 +145,7 @@ internal sealed class DrawerManager : IDisposable
 
     private void Hide(string id)
     {
-        if (!_current.TryGetValue(id, out var icon) || icon.IsShellItem || icon.Hidden) return;
+        if (!_current.TryGetValue(id, out var icon) || icon.Hidden) return;
         if (DesktopCatalog.SetHidden(id, true))
         {
             if (!_file.HiddenByApp.Contains(id)) _file.HiddenByApp.Add(id);
@@ -660,6 +661,19 @@ internal sealed class DrawerManager : IDisposable
     // not back yet keep the shell items we already know so they are not mistaken for "removed".
     private IEnumerable<DesktopIcon> ShellItems()
     {
+        var visible = VisibleShellItems();
+        // A hidden shell item is gone from explorer's view, but it still belongs in the drawer:
+        // the Recycle Bin always, and anything else this app hid.
+        var hidden = _file.HiddenByApp.Where(id => id.StartsWith("::", StringComparison.Ordinal)).Append(RecycleBinId).Distinct()
+            .Where(id => visible.All(v => v.Id != id) && DesktopCatalog.IsShellItemHidden(id))
+            .Select(id => new DesktopIcon(id, _current.GetValueOrDefault(id)?.Name ?? ShellItemName(id), 0, 0, false, Hidden: true));
+        return visible.Concat(hidden).ToList();
+    }
+
+    private static string ShellItemName(string id) => id == RecycleBinId ? "휴지통" : DesktopCatalog.DisplayName("shell:" + id);
+
+    private List<DesktopIcon> VisibleShellItems()
+    {
         try
         {
             return _icons.GetIcons().Where(i => i.IsShellItem).ToList();
@@ -712,7 +726,7 @@ internal sealed class DrawerManager : IDisposable
                 var target = ZoneRules.Target(RuleZones, icon) ?? DefaultZone;
                 target.Members.Add(icon.Id);
                 Log.Write($"new {icon.Name} -> {target.Title}");
-                if (!IsPinned(icon.Id) && !icon.IsShellItem)
+                if (!IsPinned(icon.Id))
                 {
                     Hide(icon.Id);
                     // If hiding failed (installer still writing it), the retry a few seconds later puts it away.
@@ -723,7 +737,7 @@ internal sealed class DrawerManager : IDisposable
                 }
                 changed = true;
             }
-            else if (!IsPinned(icon.Id) && !icon.Hidden && !icon.IsShellItem && !_cannotHide.Contains(icon.Id))
+            else if (!IsPinned(icon.Id) && !icon.Hidden && !_cannotHide.Contains(icon.Id))
             {
                 Hide(icon.Id); // something unhid it (the user, an installer): back into the drawer
             }
