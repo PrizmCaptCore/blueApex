@@ -7,7 +7,7 @@
     <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
     <Nullable>enable</Nullable>
     <!-- Bump this for a release; the installer and the update check read it (see docs/release.md). -->
-    <Version>0.4.2</Version>
+    <Version>0.5.0</Version>
     <Authors>prizmcaptcore</Authors>
     <!-- Only the languages the UI actually has; keeps the self-contained publish smaller. -->
     <SatelliteResourceLanguages>en;ko</SatelliteResourceLanguages>

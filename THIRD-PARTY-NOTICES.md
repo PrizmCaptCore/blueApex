@@ -19,11 +19,12 @@ The WebView2 *runtime* is not redistributed; the installer downloads Microsoft's
 The installer is built with Inno Setup (Copyright (c) Jordan Russell, Inno Setup License). Its files are not
 part of BlueApex; only the generated setup program is distributed.
 
-## C#/WinRT and the Windows SDK .NET projection (samples/MediaWidget)
+## C#/WinRT and the Windows SDK .NET projection
 
 `WinRT.Runtime.dll` — Copyright (c) Microsoft Corporation. MIT License. https://github.com/microsoft/CsWinRT
 `Microsoft.Windows.SDK.NET.dll` — distributed under the terms of the Microsoft.Windows.SDK.NET.Ref NuGet package
-license (see https://www.nuget.org/packages/Microsoft.Windows.SDK.NET.Ref). Shipped only with the media widget sample.
+license (see https://www.nuget.org/packages/Microsoft.Windows.SDK.NET.Ref). Shipped with the app (the dock's now-playing slot uses
+Windows.Media.Control) and with the media widget sample.
 
 ## Open-Meteo (samples/WeatherWidget)
 
