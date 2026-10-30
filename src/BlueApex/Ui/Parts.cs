@@ -190,10 +190,10 @@ internal static class Parts
         };
     }
 
-    /// <summary>An opaque rounded panel for the desktop layer (widgets, button face), with the app's hairline.</summary>
+    /// <summary>A rounded, see-through home-screen panel (widgets, dock) with the app's hairline; corners are anti-aliased.</summary>
     public static Border Panel(UIElement child, double corner = Theme.RadiusCard, Thickness? padding = null) => new()
     {
-        Background = Theme.Panel,
+        Background = Theme.Glass,
         BorderBrush = Theme.Border,
         BorderThickness = new Thickness(1),
         CornerRadius = new CornerRadius(corner),

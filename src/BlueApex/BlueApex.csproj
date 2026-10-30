@@ -2,7 +2,9 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net9.0-windows</TargetFramework>
+    <!-- A Windows 10 SDK target gives the WinRT APIs the dock uses (now playing: Windows.Media.Control). -->
+    <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
     <Nullable>enable</Nullable>
     <!-- Bump this for a release; the installer and the update check read it (see docs/release.md). -->
     <Version>0.4.2</Version>

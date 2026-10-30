@@ -34,7 +34,6 @@ internal sealed class AccountWidget : IInternalWidget
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMinutes(5) };
     private readonly Image _avatar = new() { Width = AvatarSize, Height = AvatarSize, Stretch = Stretch.UniformToFill };
     private readonly Image _frame = new() { Width = AvatarSize * FrameScale, Height = AvatarSize * FrameScale, Stretch = Stretch.Uniform, IsHitTestVisible = false };
-    private readonly ImageBrush _background = new() { Stretch = Stretch.UniformToFill, Opacity = 0.35 };
     private readonly Border _card;
     private readonly TextBlock _name = new() { Foreground = Theme.Text, FontSize = Theme.FontTitle, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
     private readonly Border _badge;
@@ -109,7 +108,7 @@ internal sealed class AccountWidget : IInternalWidget
         _name.Opacity = profile.SignedIn ? 1 : 0.7;
         if (profile.AvatarUrl == null) _avatar.Source = null;
         if (profile.FrameUrl == null) _frame.Source = null;
-        if (profile.BackgroundUrl == null) _card.Background = Theme.Panel;
+        if (profile.BackgroundUrl == null) _card.Background = Theme.Glass;
     }
 
     // Pictures are fetched (cached on disk) and decoded off the UI thread, then swapped in.
@@ -120,11 +119,26 @@ internal sealed class AccountWidget : IInternalWidget
         if (!ReferenceEquals(_profile, profile)) return; // a newer profile arrived meanwhile
         if (avatar != null) _avatar.Source = avatar;
         if (frame != null) _frame.Source = frame;
-        if (background != null)
+        if (background != null) _card.Background = GlassWithArt(background);
+    }
+
+    // The profile background as a faint layer over the dark glass, cropped to fill the card like
+    // UniformToFill would. One brush, so the card's own rounded border still clips it.
+    private static Brush GlassWithArt(BitmapSource art)
+    {
+        var card = new Rect(0, 0, WidthDip, HeightDip);
+        var scale = Math.Max(card.Width / art.Width, card.Height / art.Height);
+        var size = new Size(art.Width * scale, art.Height * scale);
+        var artRect = new Rect((card.Width - size.Width) / 2, (card.Height - size.Height) / 2, size.Width, size.Height);
+        var picture = new DrawingGroup { Opacity = 0.35, Children = { new ImageDrawing(art, artRect) } };
+        var drawing = new DrawingGroup
         {
-            _background.ImageSource = background;
-            _card.Background = _background;
-        }
+            Children = { new GeometryDrawing(Theme.Glass, null, new RectangleGeometry(card)), picture },
+            ClipGeometry = new RectangleGeometry(card),
+        };
+        var brush = new DrawingBrush(drawing) { Viewbox = card, ViewboxUnits = BrushMappingMode.Absolute, Stretch = Stretch.Fill };
+        brush.Freeze();
+        return brush;
     }
 
     private static BitmapSource? Decode(string? source, int heightPx)

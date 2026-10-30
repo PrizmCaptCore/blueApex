@@ -24,7 +24,12 @@ internal sealed class DrawerWindow : Window
     private readonly DrawerManager _drawer;
     private readonly IconLoader _iconLoader = new();
     private readonly TextBox _search;
-    private readonly WrapPanel _cards;
+    private readonly StackPanel _cards;      // centre: the chosen category's sections
+    private readonly StackPanel _sidebar;    // right: categories (all, zones, games)
+    private readonly WrapPanel _favorites;   // left: the dock's favourites
+    private readonly System.Windows.Controls.Image _backdrop = new() { Stretch = Stretch.UniformToFill };
+    private string _category = AllCategory;  // "all", "games" or a zone id
+    private const string AllCategory = "all", GamesCategory = "games";
     private readonly StackPanel _dropBar;
     private readonly List<(FrameworkElement Tile, DesktopIcon Icon, Panel Card)> _tiles = new();
     private Point _dragStart;
@@ -37,36 +42,72 @@ internal sealed class DrawerWindow : Window
 
         WindowStyle = WindowStyle.None;
         AllowsTransparency = true;
-        Background = Theme.Scrim;
+        Background = Brushes.Black; // covered by the blurred snapshot of the screen (see Open)
         Topmost = true;
         ShowInTaskbar = false;
         ResizeMode = ResizeMode.NoResize;
         Title = "BlueApex";
 
+        // Type-to-search, KDE dashboard style: no box, just a big centred line of text with a hint.
         _search = new TextBox
         {
+            FontSize = 22,
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            TextAlignment = TextAlignment.Center,
             Width = 640,
-            FontSize = Theme.FontLarge,
-            Padding = new Thickness(14, 8, 14, 8),
-            Margin = new Thickness(0, 36, 0, 24),
             HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        var searchHint = new TextBlock
+        {
+            Text = "입력해서 검색",
+            FontSize = 22,
+            Foreground = Theme.TextDim,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false,
         };
         _search.TextChanged += (_, _) =>
         {
-            // Clearing the search rebuilds the cards so folded groups go back to their own state.
-            if (_search.Text.Trim().Length == 0 && _lastQuery.Length > 0) Refresh();
+            var query = _search.Text.Trim();
+            searchHint.Visibility = _search.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+            // Starting or clearing a search switches the centre between "all" (search spans every
+            // category) and the chosen one, so rebuild; while typing, just filter.
+            if ((query.Length == 0) != (_lastQuery.Length == 0)) Refresh();
             else ApplyFilter();
-            _lastQuery = _search.Text.Trim();
+            _lastQuery = query;
         };
+        var searchRow = new Grid { Margin = new Thickness(0, 28, 0, 20), Children = { searchHint, _search } };
 
-        _cards = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(24, 0, 24, 24) };
-        var scroll = new ScrollViewer { Content = _cards, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        _cards = new StackPanel { Margin = new Thickness(Theme.Space4, 0, Theme.Space4, Theme.Space4) };
+        var centre = new ScrollViewer { Content = _cards, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+
+        _sidebar = new StackPanel { Margin = new Thickness(Theme.Space3, Theme.Space2, Theme.Space4, Theme.Space4) };
+        var sidebar = new ScrollViewer { Content = _sidebar, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+
+        _favorites = new WrapPanel();
+        var favorites = new DockPanel { Margin = new Thickness(Theme.Space4 * 2, 0, Theme.Space3, Theme.Space4) };
+        var favoritesTitle = ColumnTitle("즐겨찾기");
+        DockPanel.SetDock(favoritesTitle, Dock.Top);
+        favorites.Children.Add(favoritesTitle);
+        favorites.Children.Add(new ScrollViewer { Content = _favorites, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+
+        var columns = new Grid();
+        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(FavoritesWidth) });
+        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(SidebarWidth) });
+        Grid.SetColumn(centre, 1);
+        Grid.SetColumn(sidebar, 2);
+        columns.Children.Add(favorites);
+        columns.Children.Add(centre);
+        columns.Children.Add(sidebar);
+
         var hint = new TextBlock
         {
-            Text = $"Esc 닫기 · {_drawer.Hotkey} 열고 닫기 · Ctrl/Shift+클릭으로 여러 개 선택 · 끌어서 구역 이동·꺼내기·삭제",
+            Text = $"Esc 닫기 · {_drawer.Hotkey} 열고 닫기 · Ctrl/Shift+클릭으로 여러 개 선택 · 우클릭으로 구역 이동 · 끌어서 꺼내기·삭제",
             Foreground = Theme.TextFaint,
             HorizontalAlignment = HorizontalAlignment.Center,
-            Margin = new Thickness(0, 0, 0, 16),
+            Margin = new Thickness(0, 0, 0, Theme.Space4),
         };
 
         // Drop targets that appear only while an icon is being dragged.
@@ -74,11 +115,11 @@ internal sealed class DrawerWindow : Window
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Center,
-            Margin = new Thickness(0, 0, 0, 12),
+            Margin = new Thickness(0, 0, 0, Theme.Space3),
             Visibility = Visibility.Collapsed,
             Children =
             {
-                BuildDropTarget("바탕화면에 꺼내기", Theme.AccentColor, ids =>
+                BuildDropTarget("바탕화면에 꺼내기", Theme.NeutralColor, ids =>
                 {
                     foreach (var id in ids)
                     {
@@ -95,14 +136,18 @@ internal sealed class DrawerWindow : Window
             },
         };
 
-        var root = new DockPanel { Background = Brushes.Transparent };
-        DockPanel.SetDock(_search, Dock.Top);
-        DockPanel.SetDock(hint, Dock.Bottom);
-        DockPanel.SetDock(_dropBar, Dock.Bottom);
-        root.Children.Add(_search);
-        root.Children.Add(hint);
+        var root = new Grid { Background = Brushes.Transparent };
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Grid.SetRow(columns, 1);
+        Grid.SetRow(_dropBar, 2);
+        Grid.SetRow(hint, 3);
+        root.Children.Add(searchRow);
+        root.Children.Add(columns);
         root.Children.Add(_dropBar);
-        root.Children.Add(scroll);
+        root.Children.Add(hint);
         // The marquee (rubber-band) rectangle is drawn on an overlay above everything.
         _marquee = new System.Windows.Shapes.Rectangle
         {
@@ -113,7 +158,10 @@ internal sealed class DrawerWindow : Window
         };
         var overlay = new Canvas { IsHitTestVisible = false, Children = { _marquee } };
         _root = root;
-        Content = new Grid { Children = { root, overlay } };
+        // The screen as it was when the drawer opened, blurred, under a dimming scrim: the dashboard backdrop.
+        _backdrop.Effect = new System.Windows.Media.Effects.BlurEffect { Radius = 48, KernelType = System.Windows.Media.Effects.KernelType.Gaussian };
+        var scrim = new System.Windows.Shapes.Rectangle { Fill = Theme.Scrim };
+        Content = new Grid { Children = { _backdrop, scrim, root, overlay } };
 
         // Pressing on empty space (background or a card's gaps) starts a rubber-band
         // selection if the mouse moves; a plain click on the background closes the
@@ -175,7 +223,8 @@ internal sealed class DrawerWindow : Window
 
     private enum Hit { Background, Card, Tile, Control }
 
-    private DockPanel _root = null!;
+    private Grid _root = null!;
+    private const double FavoritesWidth = 320, SidebarWidth = 280;
     private System.Windows.Shapes.Rectangle _marquee = null!;
     private Hit? _pressHit;
     private Point _pressPoint;
@@ -230,6 +279,7 @@ internal sealed class DrawerWindow : Window
         Top = area.Top;
         Width = area.Width;
         Height = area.Height;
+        _backdrop.Source = Snapshot(); // before showing, so it is the screen behind us
         _search.Text = "";
         _selected.Clear();
         Refresh();
@@ -285,12 +335,182 @@ internal sealed class DrawerWindow : Window
         _generation++; // thumbnails still decoding for the old tiles are dropped when they arrive
         _lazy.Clear();
         _sections.Clear();
+        // A search always spans everything; otherwise the centre shows the chosen category.
+        if (_category != AllCategory && _category != GamesCategory && _drawer.Zones.All(z => z.Id.ToString() != _category))
+            _category = AllCategory; // that zone was deleted
+        if (_category == GamesCategory && !_drawer.ShowGames) _category = AllCategory;
+        var shown = _search.Text.Trim().Length > 0 ? AllCategory : _category;
         foreach (var zone in _drawer.Zones)
-            _cards.Children.Add(BuildCard(_drawer.IsDefault(zone) ? zone.Title + "  (기본)" : zone.Title, _drawer.IconsOf(zone), zone));
-        if (_drawer.ShowGames)
+            if (shown == AllCategory || shown == zone.Id.ToString())
+                _cards.Children.Add(BuildCard(_drawer.IsDefault(zone) ? zone.Title + "  (기본)" : zone.Title, _drawer.IconsOf(zone), zone));
+        if (_drawer.ShowGames && (shown == AllCategory || shown == GamesCategory))
             _cards.Children.Add(BuildGamesCard());
-        _cards.Children.Add(BuildAddCard());
+        BuildSidebar();
+        BuildFavorites();
         ApplyFilter();
+    }
+
+    // --- dashboard columns ---
+
+    // A column heading with a hairline under it, like the KDE dashboard's "Favoritos" / "Aplicativos".
+    private static FrameworkElement ColumnTitle(string text) => new Border
+    {
+        BorderBrush = Theme.Border,
+        BorderThickness = new Thickness(0, 0, 0, 1),
+        Margin = new Thickness(0, 0, 0, Theme.Space3),
+        Padding = new Thickness(Theme.Space1, 0, 0, Theme.Space2),
+        Child = new TextBlock { Text = text, Foreground = Theme.Text, FontSize = Theme.FontLarge },
+    };
+
+    // Sections in the centre are not cards any more: no fill, full width; the title row stays.
+    private static void Flatten(Border card)
+    {
+        card.Background = Brushes.Transparent;
+        card.Width = double.NaN;
+        card.MinHeight = 0;
+        card.HorizontalAlignment = HorizontalAlignment.Stretch;
+        card.Margin = new Thickness(0, 0, 0, Theme.Space4);
+        card.Padding = new Thickness(Theme.Space2, Theme.Space2, Theme.Space2, Theme.Space2);
+    }
+
+    private void BuildSidebar()
+    {
+        _sidebar.Children.Clear();
+        _sidebar.Children.Add(SidebarItem("모두", AllCategory, null));
+        foreach (var zone in _drawer.Zones)
+        {
+            var label = (zone.IsPortal ? "📁 " : "") + zone.Title + (_drawer.IsDefault(zone) ? "  (기본)" : "");
+            _sidebar.Children.Add(SidebarItem(label, zone.Id.ToString(), () => ZoneContextMenu(zone)));
+        }
+        if (_drawer.ShowGames)
+            _sidebar.Children.Add(SidebarItem($"게임  ({_drawer.Games.Count})", GamesCategory, () => GamesContextMenu(_drawer.Games)));
+
+        _sidebar.Children.Add(new Border { Height = 1, Background = Theme.Border, Margin = new Thickness(Theme.Space2, Theme.Space3, Theme.Space2, Theme.Space3) });
+        _sidebar.Children.Add(SidebarAction("+ 새 구역", () =>
+        {
+            var name = ZoneMenu.AskTitle("새 구역");
+            if (string.IsNullOrWhiteSpace(name)) return;
+            _category = _drawer.AddZone(name).Id.ToString(); // land on the new zone
+            Refresh();
+        }));
+        _sidebar.Children.Add(SidebarAction("+ 폴더 포털", () =>
+        {
+            var folder = PickFolder(null);
+            if (folder != null) _drawer.AddPortal(folder);
+        }));
+    }
+
+    // A category row: click shows it in the centre; right-click opens its menu (rename, rules, delete...).
+    private Button SidebarItem(string label, string category, Func<ContextMenu>? menu)
+    {
+        var selected = _category == category && _search.Text.Trim().Length == 0;
+        var item = SidebarButton(label);
+        if (selected)
+        {
+            item.Background = Theme.Selection;
+            item.FontWeight = FontWeights.SemiBold;
+        }
+        item.Click += (_, _) =>
+        {
+            _category = category;
+            _search.Text = ""; // a search would override the choice
+            Refresh();
+        };
+        if (menu != null)
+            item.ContextMenuOpening += (_, _) => item.ContextMenu = menu();
+        if (menu != null) item.ContextMenu = new ContextMenu(); // placeholder so ContextMenuOpening fires
+        return item;
+    }
+
+    private Button SidebarAction(string label, Action action)
+    {
+        var item = SidebarButton(label);
+        item.Foreground = Theme.TextDim;
+        item.Click += (_, _) => action();
+        return item;
+    }
+
+    private static Button SidebarButton(string label) => new()
+    {
+        Content = new TextBlock { Text = label, TextTrimming = TextTrimming.CharacterEllipsis },
+        FontSize = Theme.FontAction,
+        HorizontalAlignment = HorizontalAlignment.Stretch,
+        HorizontalContentAlignment = HorizontalAlignment.Left,
+        Padding = new Thickness(Theme.Space3, Theme.Space2, Theme.Space3, Theme.Space2),
+        Margin = new Thickness(0, 0, 0, 2),
+        Background = Brushes.Transparent,
+        Tag = "control",
+    };
+
+    // The dock's favourites, as tiles: click starts the app (and closes the drawer), right-click removes it.
+    private void BuildFavorites()
+    {
+        _favorites.Children.Clear();
+        if (_drawer.Dock.Count == 0)
+        {
+            _favorites.Children.Add(new TextBlock
+            {
+                Text = "타일 우클릭 → \"독에 고정\"으로\n자주 쓰는 앱을 여기와 독에 둡니다.",
+                Foreground = Theme.TextFaint,
+                FontSize = Theme.FontSmall,
+                Margin = new Thickness(Theme.Space1, Theme.Space2, 0, 0),
+            });
+            return;
+        }
+        foreach (var id in _drawer.Dock)
+        {
+            var name = DockApps.NameOf(_drawer, id);
+            var (tile, image) = Parts.Tile(name, badge: false);
+            var source = DockApps.IconSource(id);
+            image.Source = _iconLoader.GetAsync(source, IconPx, false, Dispatcher, ready => image.Source = ready);
+            tile.Tag = "control";
+            tile.MouseEnter += (_, _) => tile.Background = HoverBrush;
+            tile.MouseLeave += (_, _) => tile.Background = Brushes.Transparent;
+            tile.MouseLeftButtonUp += (_, _) =>
+            {
+                Hide();
+                DockApps.Launch(_drawer, id);
+            };
+            var menu = new ContextMenu();
+            menu.Items.Add(MenuItem("열기", () => { Hide(); DockApps.Launch(_drawer, id); }));
+            menu.Items.Add(MenuItem("독에서 빼기", () => _drawer.RemoveFromDock(id)));
+            tile.ContextMenu = menu;
+            _favorites.Children.Add(tile);
+        }
+    }
+
+    // The screen right now (the drawer is still hidden), shrunk: blurred, it becomes the backdrop.
+    private static ImageSource? Snapshot()
+    {
+        try
+        {
+            var area = System.Windows.Forms.Screen.PrimaryScreen!.WorkingArea; // physical pixels (PerMonitorV2)
+            using var full = new System.Drawing.Bitmap(area.Width, area.Height);
+            using (var g = System.Drawing.Graphics.FromImage(full))
+                g.CopyFromScreen(area.Left, area.Top, 0, 0, full.Size);
+            // A thirty-second of the size: the blur hides the loss, and it keeps the blur cheap.
+            using var small = new System.Drawing.Bitmap(Math.Max(1, area.Width / 32), Math.Max(1, area.Height / 32));
+            using (var g = System.Drawing.Graphics.FromImage(small))
+            {
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBilinear;
+                g.DrawImage(full, 0, 0, small.Width, small.Height);
+            }
+            using var stream = new System.IO.MemoryStream();
+            small.Save(stream, System.Drawing.Imaging.ImageFormat.Bmp);
+            stream.Position = 0;
+            var image = new System.Windows.Media.Imaging.BitmapImage();
+            image.BeginInit();
+            image.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+            image.StreamSource = stream;
+            image.EndInit();
+            image.Freeze();
+            return image;
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or ArgumentException or InvalidOperationException)
+        {
+            Log.Write($"drawer backdrop capture failed: {ex.Message}");
+            return null; // the black window background and the scrim still work
+        }
     }
 
     private Border BuildCard(string title, IEnumerable<DesktopIcon> icons, Zone zone)
@@ -298,9 +518,8 @@ internal sealed class DrawerWindow : Window
         // Portals show a folder as-is; other zones get the layout selector (manual / name / date / type).
         var selector = zone.IsPortal ? null : SortSelector(zone.SortMode, mode => _drawer.SetSortMode(zone, mode),
             ("manual", "수동"), ("name", "이름"), ("date", "날짜"), ("type", "종류"));
-        var parts = Parts.Card(zone.IsPortal ? "📁 " + title : title, selector, folded: zone.Rolled);
-        parts.Folded = folded => _drawer.SetRolled(zone, folded); // click on the title folds the card to its title
-        var (card, body, header) = parts;
+        var (card, body, header) = Parts.Card(zone.IsPortal ? "📁 " + title : title, selector);
+        Flatten(card);
         var tiles = new WrapPanel();
         body.Children.Add(tiles);
         // A portal shows a folder's files, not members, so it is no drop target: an icon dropped
@@ -321,6 +540,24 @@ internal sealed class DrawerWindow : Window
             card.DragOver += (_, e) => e.Effects = e.Data.GetDataPresent(DragFormat) ? DragDropEffects.Move : DragDropEffects.None;
         }
 
+        card.ContextMenu = ZoneContextMenu(zone);
+
+        if (!zone.IsPortal && zone.SortMode != "manual")
+        {
+            // Folded into collapsible groups ("little drawers") by the chosen key.
+            body.Children.Remove(tiles);
+            BuildSections(body, icons.ToList(), zone.SortMode, zone.Id.ToString());
+            return card;
+        }
+        // A portal can hold hundreds of files; only the first page is built, the rest
+        // on demand, so opening the drawer stays instant.
+        AddTiles(body, tiles, icons, zone.IsPortal ? _drawer.PortalRows * TilesPerRow : int.MaxValue);
+        return card;
+    }
+
+    // The zone's right-click menu: on its section in the drawer and on its name in the sidebar.
+    private ContextMenu ZoneContextMenu(Zone zone)
+    {
         var isDefault = _drawer.IsDefault(zone);
         var menu = new ContextMenu();
         if (zone.IsPortal)
@@ -395,31 +632,13 @@ internal sealed class DrawerWindow : Window
                     _drawer.RemoveZone(zone);
             }));
         }
-        // Right-click anywhere in the card that is not a tile (tiles have their own menu).
-        menu.Items.Insert(0, MenuItem(zone.Rolled ? "펼치기" : "접기", () =>
-        {
-            parts.SetFolded(!zone.Rolled);
-            _drawer.SetRolled(zone, !zone.Rolled);
-        }));
-        menu.Items.Insert(1, MenuItem("바탕화면에 위젯으로 열기", () =>
+        menu.Items.Insert(0, MenuItem("바탕화면에 위젯으로 열기", () =>
         {
             _drawer.RequestWidget("zone", Widgets.ZoneWidgetProvider.SettingsFor(zone));
             Hide();
         }));
-        menu.Items.Insert(2, new Separator());
-        card.ContextMenu = menu;
-
-        if (!zone.IsPortal && zone.SortMode != "manual")
-        {
-            // Folded into collapsible groups ("little drawers") by the chosen key.
-            body.Children.Remove(tiles);
-            BuildSections(body, icons.ToList(), zone.SortMode, zone.Id.ToString());
-            return card;
-        }
-        // A portal can hold hundreds of files; only the first page is built, the rest
-        // on demand, so opening the drawer stays instant.
-        AddTiles(body, tiles, icons, zone.IsPortal ? _drawer.PortalRows * TilesPerRow : int.MaxValue);
-        return card;
+        menu.Items.Insert(1, new Separator());
+        return menu;
     }
 
     // A small "현재값 ▾" button that opens a menu of choices. A plain ComboBox's dropdown
@@ -599,12 +818,33 @@ internal sealed class DrawerWindow : Window
         var games = _drawer.Games;
         var selector = SortSelector(_drawer.GameLayout, mode => _drawer.GameLayout = mode,
             ("source", "런처별"), ("flat", "전체"), ("letters", "글자별"));
-        var parts = Parts.Card(games.Count > 0 ? $"게임  ({games.Count})" : "게임  (불러오는 중...)", selector, alternate: true, folded: _drawer.GamesFolded);
-        parts.Folded = folded => _drawer.GamesFolded = folded;
-        var (card, body, _) = parts;
+        var (card, body, _) = Parts.Card(games.Count > 0 ? $"게임  ({games.Count})" : "게임  (불러오는 중...)", selector);
+        Flatten(card);
         var tiles = new WrapPanel();
         body.Children.Add(tiles);
 
+        card.ContextMenu = GamesContextMenu(games);
+
+        if (_drawer.GameLayout == "source")
+        {
+            // Launcher → first letter: two levels of little drawers.
+            body.Children.Remove(tiles);
+            BuildSections(body, games.ToList(), "source", "games", innerMode: "name");
+        }
+        else if (_drawer.GameLayout == "letters")
+        {
+            body.Children.Remove(tiles);
+            BuildSections(body, games.ToList(), "name", "games");
+        }
+        else
+        {
+            AddTiles(body, tiles, games, _drawer.PortalRows * TilesPerRow);
+        }
+        return card;
+    }
+
+    private ContextMenu GamesContextMenu(IReadOnlyList<DesktopIcon> games)
+    {
         var menu = new ContextMenu();
         if (_drawer.SteamLinked)
             menu.Items.Add(MenuItem("Steam 로그아웃 (보유 게임 목록 지우기)", _drawer.UnlinkSteam));
@@ -629,24 +869,7 @@ internal sealed class DrawerWindow : Window
         menu.Items.Add(MenuItem((showAll ? "● " : "○ ") + "미설치 게임도 보기 (흐리게; 클릭하면 설치 화면)", () => _drawer.ShowUninstalledGames = !showAll));
         menu.Items.Add(new Separator());
         menu.Items.Add(MenuItem("게임 카드 숨기기 (트레이 메뉴에서 다시 켤 수 있음)", () => _drawer.ShowGames = false));
-        card.ContextMenu = menu;
-
-        if (_drawer.GameLayout == "source")
-        {
-            // Launcher → first letter: two levels of little drawers.
-            body.Children.Remove(tiles);
-            BuildSections(body, games.ToList(), "source", "games", innerMode: "name");
-        }
-        else if (_drawer.GameLayout == "letters")
-        {
-            body.Children.Remove(tiles);
-            BuildSections(body, games.ToList(), "name", "games");
-        }
-        else
-        {
-            AddTiles(body, tiles, games, _drawer.PortalRows * TilesPerRow);
-        }
-        return card;
+        return menu;
     }
 
     private void OpenGamesWidget(string source)
@@ -741,8 +964,8 @@ internal sealed class DrawerWindow : Window
         }
     }
 
-    // Card width 440 minus padding, tiles 100 wide plus margins: four per row.
-    private const int TilesPerRow = 4;
+    // How many tiles fit across the centre column; pages ("더 보기") are a few such rows.
+    private int TilesPerRow => Math.Max(4, (int)((_cards.ActualWidth > 0 ? _cards.ActualWidth : Width - FavoritesWidth - SidebarWidth - 64) / (Theme.TileWidth + 4)));
 
     // --- selection ---
 
@@ -907,6 +1130,7 @@ internal sealed class DrawerWindow : Window
                     foreach (var id in appIds) _drawer.RemoveMember(id);
                 }));
             menu.Items.Add(new Separator());
+            menu.Items.Add(DockMenuItem(appIds, label));
             menu.Items.Add(MenuItem($"{label} 바탕화면에 바로가기 만들기".Trim(), () =>
             {
                 foreach (var id in appIds) _drawer.PinGame(id);
@@ -932,6 +1156,7 @@ internal sealed class DrawerWindow : Window
                 foreach (var id in toggleable) { if (pin) _drawer.Pin(id); else _drawer.Unpin(id); }
             }));
         }
+        menu.Items.Add(DockMenuItem(ids, label));
         var move = new MenuItem { Header = $"{label} 구역으로 이동".Trim() };
         foreach (var zone in _drawer.Zones.Where(z => !z.IsPortal))
             move.Items.Add(MenuItem(_drawer.IsDefault(zone) ? zone.Title + " (기본)" : zone.Title, () =>
@@ -950,30 +1175,14 @@ internal sealed class DrawerWindow : Window
         return menu;
     }
 
-    private Border BuildAddCard()
+    // "독에 고정" / "독에서 빼기" for the clicked tile or the selection (mixed: add them all).
+    private MenuItem DockMenuItem(IReadOnlyList<string> ids, string label)
     {
-        var button = Parts.BigButton("+ 새 구역");
-        button.Click += (_, _) =>
+        var add = ids.Any(id => !_drawer.IsInDock(id));
+        return MenuItem(add ? $"{label} 독에 고정".Trim() : $"{label} 독에서 빼기".Trim(), () =>
         {
-            var name = ZoneMenu.AskTitle("새 구역");
-            if (!string.IsNullOrWhiteSpace(name)) _drawer.AddZone(name);
-        };
-        var portal = Parts.BigButton("+ 폴더 포털");
-        portal.Margin = new Thickness(0, 10, 0, 0);
-        portal.ToolTip = "폴더 하나의 내용을 그대로 보여 주는 구역";
-        portal.Click += (_, _) =>
-        {
-            var folder = PickFolder(null);
-            if (folder != null) _drawer.AddPortal(folder);
-        };
-        return new Border
-        {
-            Width = 200,
-            MinHeight = 140,
-            Margin = new Thickness(12),
-            Child = new StackPanel { Children = { button, portal } },
-            VerticalAlignment = VerticalAlignment.Top,
-        };
+            foreach (var id in ids) { if (add) _drawer.AddToDock(id); else _drawer.RemoveFromDock(id); }
+        });
     }
 
     // The drawer is topmost; the dialog is modal to it so it is not hidden behind.

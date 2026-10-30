@@ -428,17 +428,75 @@ internal sealed class DrawerManager : IDisposable
 
     public void SaveLayout() => Save();
 
-    /// <summary>Saved drawer-button position, or null for the default spot.</summary>
-    public (int X, int Y)? ButtonPosition
+    /// <summary>Saved dock position (horizontal centre, top), or null for bottom centre.</summary>
+    public (int CenterX, int Y)? DockPosition
     {
-        get => _file.ButtonX is { } x && _file.ButtonY is { } y ? (x, y) : null;
+        get => _file.DockCenterX is { } x && _file.DockY is { } y ? (x, y) : null;
         set
         {
-            _file.ButtonX = value?.X;
-            _file.ButtonY = value?.Y;
+            _file.DockCenterX = value?.CenterX;
+            _file.DockY = value?.Y;
             Save();
         }
     }
+
+    // --- Discord (the user's own application; see Desktop/DiscordVoice.cs) ---
+
+    /// <summary>The saved Discord application, or null when not set up (or saved under another Windows account).</summary>
+    public DiscordCredentials? DiscordCredentials
+    {
+        get
+        {
+            var secret = Secret.Unprotect(_file.DiscordSecret);
+            return string.IsNullOrWhiteSpace(_file.DiscordClientId) || secret == null
+                ? null
+                : new DiscordCredentials(_file.DiscordClientId, secret, Secret.Unprotect(_file.DiscordRefreshToken));
+        }
+    }
+
+    public string? DiscordClientId => _file.DiscordClientId;
+
+    /// <summary>Stores a new application (clearing any old authorization); null for both removes it.</summary>
+    public void SetDiscordApp(string? clientId, string? secret)
+    {
+        _file.DiscordClientId = string.IsNullOrWhiteSpace(clientId) ? null : clientId.Trim();
+        _file.DiscordSecret = string.IsNullOrWhiteSpace(secret) ? null : Secret.Protect(secret.Trim());
+        _file.DiscordRefreshToken = null;
+        Save();
+    }
+
+    public void SetDiscordRefreshToken(string? token)
+    {
+        _file.DiscordRefreshToken = token == null ? null : Secret.Protect(token);
+        Save();
+    }
+
+    // --- dock favourites ---
+
+    /// <summary>Raised when the dock's favourites change (the dock redraws).</summary>
+    public event Action? DockChanged;
+
+    public IReadOnlyList<string> Dock => _file.Dock;
+
+    public bool IsInDock(string id) => _file.Dock.Contains(id, StringComparer.OrdinalIgnoreCase);
+
+    public void AddToDock(string id)
+    {
+        if (IsInDock(id)) return;
+        _file.Dock.Add(id);
+        Save();
+        DockChanged?.Invoke();
+    }
+
+    public void RemoveFromDock(string id)
+    {
+        if (_file.Dock.RemoveAll(d => string.Equals(d, id, StringComparison.OrdinalIgnoreCase)) == 0) return;
+        Save();
+        DockChanged?.Invoke();
+    }
+
+    /// <summary>A drawer item or game by id, when the drawer knows it (for the dock's names and launching).</summary>
+    public DesktopIcon? Find(string id) => _current.GetValueOrDefault(id) ?? _gamesById.GetValueOrDefault(id);
 
     // --- zones ---
 
@@ -754,6 +812,7 @@ internal sealed class DrawerManager : IDisposable
             _file.Pinned.Remove(id);
             _file.HiddenByApp.Remove(id);
             _cannotHide.Remove(id);
+            if (_file.Dock.Remove(id)) DockChanged?.Invoke();
             changed = true;
         }
 

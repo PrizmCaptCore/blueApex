@@ -11,6 +11,7 @@ src/BlueApex/
   Autostart.cs           로그인 시 자동 실행(작업 스케줄러 로그온 작업, COM late binding). 예전 Run 키는 옮긴다.
   StartupMovie.cs        로그인 직후 Steam 부팅 영상을 전체 화면으로 재생(WebView2). 파일은 Steam 설치본의 것.
   Updater.cs             GitHub Releases에서 새 버전 확인, 설치 파일 받아서 조용히 실행 (docs/release.md).
+  Secret.cs              작은 비밀값(디스코드 Secret·토큰)을 Windows DPAPI로 암호화/복호화.
 
 build/
   publish.ps1            self-contained 배포 빌드 + 인스톨러 생성. 버전은 csproj의 <Version>.
@@ -20,19 +21,25 @@ build/
   Drawer/                "홈 화면 + 서랍" 기능의 중심
     DrawerManager.cs     ★ 상태의 주인. 어떤 아이콘이 꺼내져 있고 숨겨져 있는지, 구역·규칙, 저장, 1초 폴링.
     DrawerWindow.cs      서랍 화면(전체 화면 창). 카드·타일·검색·선택·드래그. 상태는 DrawerManager에 물어본다.
-    DesktopButton.cs     바탕화면의 둥근 버튼.
+    DesktopDock.cs       바탕화면 독: 즐겨찾기, 실행 중인 앱(점 표시), 맨 끝 서랍 버튼. 1.5초마다 창 목록을 다시 본다.
+    DockApps.cs          독 즐겨찾기 id(파일·exe·게임·스토어 앱)의 이름·아이콘·실행. 독과 서랍 왼쪽 즐겨찾기가 같이 쓴다.
+    DiscordSetup.cs      "디스코드 음성 연결 (고급)" 창: 디스코드 개발자 앱 만드는 법 안내와 Client ID·Secret 입력.
     Hotkey.cs            전역 단축키 등록.
     IconLoader.cs        셸에서 아이콘 이미지 뽑기.
 
   Desktop/               Windows 바탕화면과 직접 맞닿는 층
     DesktopCatalog.cs    ★ 바탕화면 폴더 두 곳을 읽고, 숨김 속성을 켜고 끄고, 공용 바탕화면 권한을 요청.
     NameOrder.cs         이름 정렬(A→Z 먼저, 그다음 가나다). 구역 정렬과 게임 카드가 쓴다.
+    RunningApps.cs       작업 표시줄에 보이는 창을 앱별로 묶어 찾기(EnumWindows, AppUserModelID). 독이 쓴다.
+    NowPlaying.cs        지금 재생 중인 미디어(Windows 미디어 컨트롤, WinRT). 독의 미디어 칸이 쓴다.
+    DiscordVoice.cs      디스코드 로컬 RPC(이름 있는 파이프): 음성 채널·사람·말하는 중·마이크/헤드셋. 사용자 본인 디스코드 앱으로 인증.
     ShortcutWriter.cs    게임의 .url 바로가기 만들기. 게임 타일의 "바탕화면에 바로가기 만들기"가 쓴다.
     DesktopIconView.cs   탐색기의 아이콘 뷰(COM). 셸 항목 목록, 위치 읽기/쓰기, 선택 상태. DesktopIcon 레코드(IsGame/IsVirtual)도 여기.
     ShellInterop.cs      위 COM 인터페이스들의 C# 선언(vtable 순서). 손대면 안 되는 파일.
     DesktopHost.cs       탐색기의 바탕화면 창 계층(Progman/DefView) 찾기 + Win32 함수 선언(NativeMethods).
-    DesktopLayerWindow.cs 아이콘 아래 층에 WPF 내용을 그리는 창. 버튼·위젯이 쓴다.
-    DesktopLayerInput.cs ★ 그 층의 마우스 처리(저수준 훅 하나). 클릭/끌기/우클릭을 항목에 전달.
+    DesktopFloatWindow.cs ★ 위젯·독을 띄우는 창. 바탕화면 바로 위에 깔린 투명 일반 창(Rainmeter 방식)이라 모서리가 부드럽고
+                         배경만 반투명. 클릭·끌기·휠을 직접 받는다. DesktopZOrder가 바탕화면이 앞에 오면 올리고 앱이 오면 내린다.
+    DesktopLayerInput.cs 바탕화면 저수준 마우스 훅. 지금은 "바탕화면에 뭔가 떨어졌다"를 알아채 바로 폴링하는 데만 쓴다.
     DesktopPopupMenu.cs  바탕화면 위에서 띄우는 우클릭 메뉴.
     BackupStore.cs       아이콘 위치 스냅샷 저장/복원.
 
@@ -80,7 +87,7 @@ OnStartup
   DrawerManager 생성        → 바탕화면 스캔, 백업, 기본 구역 보장, 꺼내지 않은 파일 숨김, 폴링 시작
   DrawerWindow 생성         → 아직 안 보임
   Hotkey 등록               → 누르면 ToggleDrawer
-  DesktopHost.Find()        → 성공하면 DesktopLayerInput(훅) + DesktopButton + WidgetHost
+  DesktopHost.Find()        → 성공하면 DesktopLayerInput(훅) + DesktopDock + WidgetHost
                               실패하면(구조가 다른 Windows) 버튼·위젯 없이 계속
   트레이 아이콘·메뉴 구성
   전역 예외 처리기 등록       → 예외는 로그, 앱은 계속; 진짜 죽을 땐 숨김 풀기 시도
@@ -119,7 +126,7 @@ OnExit
 열림 상태는 `_openSections`에 세션 동안만 기억한다. 검색 시 `ApplyFilter`가 `_sections`의 묶음을 전부 열어 맞는 타일을 만든다.
 
 **위젯** — `WidgetHost`가 `layout.json`의 `Widgets`마다 `WidgetItem`을 만든다. `WidgetItem`은
-`provider.Create(context)`로 플러그인 위젯을 얻고, 그 `View`를 `DesktopLayerWindow`에 넣고, 자신을 `DesktopLayerInput.Items`에 등록한다.
+`provider.Create(context)`로 플러그인 위젯을 얻고, 그 `View`를 `DesktopFloatWindow`에 넣는다. 창이 마우스를 받아 위젯 항목에 넘긴다.
 훅이 그 창 영역의 누름을 감지하면 `MoveTo/Moved/Click/RightClick`을 불러 준다.
 
 ## 4. 지켜야 할 규칙 (왜 이렇게 돼 있는지)
@@ -129,8 +136,8 @@ OnExit
   예외가 새어 나가면 프로세스가 죽으면서 마우스가 멈춘다. 그래서 전체가 try/catch로 싸여 있다.
 - **아이콘 위치는 건드리지 않는다.** 숨김 속성만 쓴다. 옛 방식(좌표를 화면 밖으로)은 탐색기가 되돌려서 포기했고, 그 코드는 0.4.1에서 지웠다.
 - **상태는 `DrawerManager` 한 곳에.** 창·버튼·위젯은 묻고 요청만 한다. 저장은 `Save()` 한 함수.
-- **바탕화면 층 창은 세 가지 제약**이 있다(`DesktopLayerWindow` 주석): 레이어드 자식 창만 보임, 창 전체 투명도만 됨, 소프트웨어 렌더링.
-  이건 Windows 11 24H2+의 바탕화면 구조 때문이고 실험으로 확인한 사실이다.
+- **위젯·독은 바탕화면(Progman) 바로 위의 일반 창이다.** 예전엔 Progman의 자식 창으로 아이콘 아래에 그렸는데, 거기서는 창 전체 투명도와
+  각진 영역만 돼서 모서리가 계단처럼 보였다. 지금 창은 앱 창들 아래에 깔려 있고, Win+D 등으로 바탕화면이 앞에 오면 `DesktopZOrder`가 같이 올린다.
 - **종료 경로는 하나.** 트레이 "종료"든 `--exit`든 로그오프든 `Shutdown()` → `OnExit` → `UnhideAll()`. 강제 종료만 이 길을 건너뛴다.
 - **색과 크기는 `Ui/`에만 쓴다.** 화면 코드에 `Color.FromArgb(...)`나 `FontSize = 12` 같은 값이 직접 들어가면
   나중에 디자인을 바꿀 때 파일마다 찾아다녀야 한다. `Theme` 토큰과 `Parts` 부품만 쓰면 한 곳만 고치면 된다. 자세한 것은 `docs/design.md`.
@@ -172,7 +179,7 @@ OnExit
 | 런처 추가(예: Ubisoft) | `Games/`에 `XxxLibrary.Scan()` 하나 만들고 `GameCatalog.Scan`·`Launch`·`SourceLabel`에 한 줄씩 |
 | 새 서비스 계정 연동 | `SteamSession.cs`를 본떠 `XxxSession.cs`: `BrowserSession.OpenAsync` → 로그인 URL → 쿠키/토큰 확인 |
 | 게임 카드 메뉴·배치 | `DrawerWindow.cs` (`BuildGamesCard`, `LinkSteam`) |
-| 바탕화면 버튼 모양 | `Drawer/DesktopButton.cs` (`BuildFace`) |
+| 독 모양·슬롯 크기 | `Drawer/DesktopDock.cs` (`Draw`, `AppSlot`, 상수 `Slot`·`IconSize`) |
 | 색·글자 크기·모서리 값 | `Ui/Theme.cs` (토큰 하나 = 그 값을 쓰는 모든 곳) |
 | 버튼·입력창·메뉴 생김새 | `Ui/Styles.xaml` (컨트롤 종류별 블록) |
 | 카드·타일·묶음 머리줄 구조 | `Ui/Parts.cs` (`Card`, `Tile`, `GroupHeader`, `Pill`, `Panel`, `Dialog`) |

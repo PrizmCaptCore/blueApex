@@ -17,7 +17,7 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
-                    <Border x:Name="Chrome" Background="{TemplateBinding Background}" CornerRadius="6"
+                    <Border x:Name="Chrome" Background="{TemplateBinding Background}" CornerRadius="10"
                             Padding="{TemplateBinding Padding}" BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}">
                         <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
@@ -52,7 +52,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="TextBox">
                     <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6">
+                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="10">
                         <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" />
                     </Border>
                 </ControlTemplate>
@@ -78,7 +78,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="ContextMenu">
                     <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="1" CornerRadius="8" Padding="4">
+                            BorderThickness="1" CornerRadius="12" Padding="6">
                         <StackPanel IsItemsHost="True" />
                     </Border>
                 </ControlTemplate>
@@ -94,7 +94,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="MenuItem">
                     <Grid>
-                        <Border x:Name="Row" Background="Transparent" CornerRadius="5" Padding="{TemplateBinding Padding}">
+                        <Border x:Name="Row" Background="Transparent" CornerRadius="8" Padding="{TemplateBinding Padding}">
                             <DockPanel>
                                 <TextBlock x:Name="Arrow" DockPanel.Dock="Right" Text="▸" Margin="12,0,0,0"
                                            Foreground="{x:Static ui:Theme.TextDim}" Visibility="Collapsed" />
@@ -106,7 +106,7 @@
                                IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}"
                                AllowsTransparency="True" Focusable="False" PopupAnimation="Fade">
                             <Border Background="{x:Static ui:Theme.Panel}" BorderBrush="{x:Static ui:Theme.Border}"
-                                    BorderThickness="1" CornerRadius="8" Padding="4">
+                                    BorderThickness="1" CornerRadius="12" Padding="6">
                                 <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle" />
                             </Border>
                         </Popup>

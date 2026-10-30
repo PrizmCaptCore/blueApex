@@ -17,35 +17,38 @@ internal static class Theme
 {
     // --- colour tokens ---
 
-    /// <summary>Full-screen dim behind the drawer.</summary>
-    public static readonly Brush Scrim = Frozen(0xD8, 0x10, 0x10, 0x14);
+    /// <summary>Full-screen dim behind the drawer: light, so the cards (not the backdrop) carry the dark.</summary>
+    public static readonly Brush Scrim = Frozen(0xD0, 0x08, 0x08, 0x0A);
 
-    /// <summary>A card / panel on the drawer or the desktop layer.</summary>
-    public static readonly Brush Card = Frozen(0xC8, 0x1E, 0x1E, 0x24);
+    /// <summary>A card in the drawer: near-black, slightly see-through (GNOME popover look).</summary>
+    public static readonly Brush Card = Frozen(0xE6, 0x1A, 0x1A, 0x1C);
 
-    /// <summary>A card of a different kind (the all-apps card), slightly bluer.</summary>
-    public static readonly Brush CardAlt = Frozen(0xC8, 0x1E, 0x24, 0x2E);
+    /// <summary>Kept as an alias so every card shares one colour (it used to be a bluer variant).</summary>
+    public static readonly Brush CardAlt = Card;
 
     /// <summary>A card that is a valid drop target under the cursor.</summary>
-    public static readonly Brush CardHover = Frozen(0xE0, 0x2E, 0x3A, 0x50);
+    public static readonly Brush CardHover = Frozen(0xF0, 0x2C, 0x2C, 0x2F);
 
-    /// <summary>Opaque panel for the desktop layer (which cannot blend per pixel): widgets, the drawer button.</summary>
-    public static readonly Brush Panel = Frozen(0xFF, 0x1E, 0x1E, 0x24);
+    /// <summary>Opaque surface for menus and dialogs.</summary>
+    public static readonly Brush Panel = Frozen(0xFF, 0x1E, 0x1E, 0x20);
+
+    /// <summary>Home-screen surfaces (widgets, dock): the card colour, see-through over the wallpaper; text stays crisp.</summary>
+    public static readonly Brush Glass = Frozen(0xD9, 0x16, 0x16, 0x18);
 
     /// <summary>Text input background.</summary>
-    public static readonly Brush Input = Frozen(0xFF, 0x2A, 0x2A, 0x30);
+    public static readonly Brush Input = Frozen(0xFF, 0x2C, 0x2C, 0x2E);
 
     /// <summary>Hairline around panels and inputs.</summary>
-    public static readonly Brush Border = Frozen(0x40, 0xFF, 0xFF, 0xFF);
+    public static readonly Brush Border = Frozen(0x1A, 0xFF, 0xFF, 0xFF);
 
     /// <summary>Row-style control at rest (group header bars).</summary>
-    public static readonly Brush GroupBar = Frozen(0x28, 0xFF, 0xFF, 0xFF);
+    public static readonly Brush GroupBar = Frozen(0x14, 0xFF, 0xFF, 0xFF);
 
     /// <summary>Small button fill at rest.</summary>
-    public static readonly Brush ButtonFill = Frozen(0x40, 0xFF, 0xFF, 0xFF);
+    public static readonly Brush ButtonFill = Frozen(0x1F, 0xFF, 0xFF, 0xFF);
 
     /// <summary>Hover highlight over anything.</summary>
-    public static readonly Brush Hover = Frozen(0x30, 0xFF, 0xFF, 0xFF);
+    public static readonly Brush Hover = Frozen(0x1F, 0xFF, 0xFF, 0xFF);
 
     public static readonly Brush Text = Brushes.White;
     public static readonly Brush TextDim = Frozen(0xB0, 0xFF, 0xFF, 0xFF);
@@ -54,19 +57,23 @@ internal static class Theme
     /// <summary>The Windows accent colour (Settings → Personalization → Colors), with a fallback blue.</summary>
     public static readonly Color AccentColor = ReadSystemAccent() ?? Color.FromRgb(0x4C, 0xAF, 0xF5);
     public static readonly Brush Accent = Frozen(AccentColor);
-    public static readonly Brush Selection = Frozen(WithAlpha(AccentColor, 0x60));
-    public static readonly Brush MarqueeFill = Frozen(WithAlpha(AccentColor, 0x30));
-    public static readonly Brush MarqueeStroke = Frozen(WithAlpha(AccentColor, 0xC0));
+    // Selection is a neutral light grey, like GNOME's highlighted day; the accent stays for small badges only.
+    public static readonly Brush Selection = Frozen(0x40, 0xFF, 0xFF, 0xFF);
+    public static readonly Brush MarqueeFill = Frozen(0x1F, 0xFF, 0xFF, 0xFF);
+    public static readonly Brush MarqueeStroke = Frozen(0x8C, 0xFF, 0xFF, 0xFF);
+
+    /// <summary>The neutral drop target ("바탕화면에 꺼내기").</summary>
+    public static readonly Color NeutralColor = Color.FromRgb(0x3A, 0x3A, 0x3D);
 
     /// <summary>Destructive actions (delete drop target).</summary>
     public static readonly Color DangerColor = Color.FromRgb(0xC0, 0x39, 0x2B);
 
     // --- shape and space tokens (DIPs) ---
 
-    public const double RadiusCard = 14;
-    public const double RadiusTile = 8;
-    public const double RadiusControl = 6;
-    public const double RadiusPill = 12;
+    public const double RadiusCard = 18;
+    public const double RadiusTile = 12;
+    public const double RadiusControl = 10;
+    public const double RadiusPill = 16;
 
     public const double Space1 = 4;
     public const double Space2 = 8;

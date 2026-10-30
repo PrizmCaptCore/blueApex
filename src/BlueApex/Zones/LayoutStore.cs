@@ -24,8 +24,20 @@ internal sealed class LayoutFile
     /// <summary>The zone that collects every icon no rule claims. Created on first load if missing.</summary>
     public Guid? DefaultZoneId { get; set; }
 
-    public int? ButtonX { get; set; }
-    public int? ButtonY { get; set; }
+    /// <summary>Apps kept on the home-screen dock, in order: desktop items, exe paths, game ids, or "aumid:&lt;AppUserModelID&gt;".</summary>
+    public List<string> Dock { get; set; } = new();
+
+    /// <summary>
+    /// The user's own Discord application for voice controls in the dock (advanced, off until set).
+    /// The secret and refresh token are DPAPI-protected (<see cref="Secret"/>), readable only by this Windows account.
+    /// </summary>
+    public string? DiscordClientId { get; set; }
+    public string? DiscordSecret { get; set; }
+    public string? DiscordRefreshToken { get; set; }
+
+    /// <summary>The dock's horizontal centre and top edge (icon-view pixels); null = bottom centre.</summary>
+    public int? DockCenterX { get; set; }
+    public int? DockY { get; set; }
 
     /// <summary>How many rows of a portal folder (or the games card) the drawer shows before "더 보기" is needed.</summary>
     public int PortalRows { get; set; } = 4;

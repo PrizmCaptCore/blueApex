@@ -72,6 +72,14 @@ internal sealed class DesktopHost
         return screen;
     }
 
+    /// <summary>Converts icon-view coordinates to screen coordinates (physical pixels).</summary>
+    public NativeMethods.POINT IconToScreen(int x, int y)
+    {
+        var pt = new NativeMethods.POINT { X = x, Y = y };
+        NativeMethods.MapWindowPoints(IconList, IntPtr.Zero, ref pt, 1);
+        return pt;
+    }
+
     public NativeMethods.POINT IconToHost(int x, int y)
     {
         var pt = new NativeMethods.POINT { X = x, Y = y };

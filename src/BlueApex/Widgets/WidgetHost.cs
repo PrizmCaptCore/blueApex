@@ -64,13 +64,12 @@ internal sealed class WidgetHost : IDisposable
             item = new WidgetItem(_desktop, spec, new MissingProvider(spec.Type), this);
         }
         _items.Add(item);
-        _input.Items.Add(item);
+        // Input arrives through the widget's own window now (DesktopFloatWindow), not the desktop mouse hook.
     }
 
     internal void Remove(WidgetItem item)
     {
         _items.Remove(item);
-        _input.Items.Remove(item);
         _drawer.Widgets.Remove(item.Spec);
         _drawer.SaveLayout();
         item.Dispose();
@@ -89,7 +88,7 @@ internal sealed class WidgetHost : IDisposable
 internal sealed class WidgetItem : IDesktopLayerItem, IDesktopLayerScrollable, IDisposable
 {
     private readonly WidgetHost _host;
-    private readonly DesktopLayerWindow _window;
+    private readonly DesktopFloatWindow _window;
     private readonly IWidget _widget;
     private readonly double _scale;
 
@@ -112,8 +111,7 @@ internal sealed class WidgetItem : IDesktopLayerItem, IDesktopLayerScrollable, I
             }
             sized.Resized += () => Resize(ToPixels(sized.DesiredSizeDip));
         }
-        var corner = (int)Math.Round(WidgetStyle.CornerDip * _scale);
-        _window = new DesktopLayerWindow(desktop, _widget.View, spec.X, spec.Y, spec.Width, spec.Height, 0.88, corner);
+        _window = new DesktopFloatWindow(desktop, this, _widget.View, spec.X, spec.Y, spec.Width, spec.Height);
     }
 
     private (int Width, int Height) ToPixels((double Width, double Height) dip) =>

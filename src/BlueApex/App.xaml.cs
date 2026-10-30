@@ -108,7 +108,9 @@ public partial class App : Application
     private DrawerManager? _drawer;
     private DrawerWindow? _window;
     private Hotkey? _hotkey;
-    private DesktopButton? _button;
+    private DesktopDock? _button;
+    private NowPlaying? _nowPlaying;   // what is playing, for the dock's media slot
+    private DiscordVoice? _discord;    // Discord voice (the user's own Discord app), for the dock's voice slot
     private DesktopLayerInput? _layerInput;
     private WidgetHost? _widgets;
 
@@ -176,8 +178,10 @@ public partial class App : Application
         {
             var desktop = DesktopHost.Find();
             _layerInput = new DesktopLayerInput(desktop, _drawer.PollNow);
-            _button = new DesktopButton(desktop, _drawer, ToggleDrawer);
-            _layerInput.Items.Add(_button);
+            _nowPlaying = new NowPlaying();
+            _discord = new DiscordVoice(() => _drawer.DiscordCredentials, _drawer.SetDiscordRefreshToken);
+            _button = new DesktopDock(desktop, _drawer, ToggleDrawer, _nowPlaying, _discord); // the home-screen dock
+            // the dock takes its own clicks (DesktopFloatWindow); the hook only watches for drops on the desktop
             _widgets = new WidgetHost(desktop, _layerInput, _drawer);
         }
         catch (Exception ex) when (ex is NotSupportedException or Win32Exception)
@@ -241,6 +245,8 @@ public partial class App : Application
         menu.Items.Add(autostart);
 
         // The boot screen: one of Steam's startup movies, played when the logon task starts the app.
+        menu.Items.Add("디스코드 음성 연결 (고급)...", null, (_, _) => DiscordSetup.Show(_drawer, _discord));
+
         var movies = new System.Windows.Forms.ToolStripMenuItem("로그인 시 시작 영상 (Steam 부팅 화면)");
         movies.DropDownOpening += (_, _) => FillMovieMenu(movies);
         FillMovieMenu(movies);
@@ -375,6 +381,8 @@ public partial class App : Application
         _layerInput?.Dispose();
         _widgets?.Dispose();
         _button?.Dispose();
+        _nowPlaying?.Dispose();
+        _discord?.Dispose();
         _window?.Close();
         _drawer?.Dispose();
         _instanceMutex?.Dispose();
