@@ -64,6 +64,10 @@
 | Steam | 라이브러리 폴더의 `appmanifest_*.acf` | 카드 우클릭 → **"Steam 로그인"** 창에서 Steam에 로그인(아래) |
 | Epic Games | 런처의 `Manifests\*.item` | 런처에 **로그인돼 있으면 자동**(런처가 둔 카탈로그 캐시를 읽음) |
 | GOG | 레지스트리 (`GOG.com\Games`) | 안 읽음(GOG Galaxy 로그인 뒤에만 있는 목록) |
+| Battle.net | Windows 설치 프로그램 목록의 블리자드 항목(게임 코드·exe) | 안 읽음. 실행은 Battle.net을 거쳐 바로 시작 |
+| HoYoPlay | HoYoPlay가 레지스트리에 남기는 설치 게임 목록(원신·스타레일 등) | 안 읽음. 실행은 HoYoPlay 바로가기와 같은 방식(`launcher.exe --game=코드`) |
+| STOVE | 게임 설치 때 생기는 시작 메뉴·바탕화면 바로가기(`sgup://…`) | 안 읽음. 실행은 그 바로가기 그대로 |
+| Google Play 게임 | 게임 설치 때 생기는 바로가기(`googleplaygames://…`) | 안 읽음(구글 계정 연동은 별도 OAuth 앱이 필요) |
 
 - 설치된 게임은 클릭 → 실행(Steam은 `steam://rungameid/…`, Epic은 `com.epicgames.launcher://…`, GOG는 exe 직접).
 - 설치 안 한 게임은 **흐리게** 보이고, 클릭하면 런처의 설치 화면이 열린다. 카드 우클릭 "미설치 게임도 보기"로 숨길 수 있다.

@@ -102,7 +102,8 @@ internal sealed class IconLoader
         if (cover && file == null) return null;
         if (file != null && DecodeFile(file, sizePx, crop: !cover, rejectTiny: cover) is { } picture)
             return picture;
-        return game.Exe != null && System.IO.File.Exists(game.Exe) ? Load(game.Exe, sizePx, false) : null;
+        var iconSource = game.IconFile != null && System.IO.File.Exists(game.IconFile) ? game.IconFile : game.Exe;
+        return iconSource != null && System.IO.File.Exists(iconSource) ? Load(iconSource, sizePx, false) : null;
     }
 
     // --- pictures the user chose themselves (widget settings) ---

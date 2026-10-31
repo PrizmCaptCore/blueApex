@@ -720,7 +720,7 @@ internal sealed class DrawerWindow : Window
             case "source":
             {
                 // One group per launcher, in a fixed order; installed games before owned-only ones.
-                var order = new[] { "steam", "epic", "gog" };
+                var order = new[] { "steam", "epic", "battlenet", "gog", "hoyoplay", "stove", "gplay", "neowiz" };
                 foreach (var group in icons.Where(i => i.IsGame).GroupBy(i => GameCatalog.SourceOf(i.Id)).OrderBy(g => Array.IndexOf(order, g.Key)))
                     yield return (GameCatalog.SourceLabel(group.Key), group.OrderBy(i => _drawer.GameOf(i.Id)?.Installed == true ? 0 : 1).ToList());
                 yield break;

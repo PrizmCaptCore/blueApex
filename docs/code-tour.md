@@ -51,6 +51,11 @@ build/
     Accounts.cs          계정 카드의 데이터: IAccountSource(Steam/GOG/Epic). 로그인·로그아웃·프로필 가져오기. 새 런처 계정은 여기에 클래스 하나.
     EpicLibrary.cs       설치 게임은 Manifests\*.item, 보유 게임은 런처의 catcache.bin(base64 JSON).
     GogLibrary.cs        레지스트리 GOG.com\Games (설치된 것만).
+    BattleNetLibrary.cs  Battle.net: 설치 프로그램 목록의 블리자드 항목(--uid=게임 코드). 실행은 Battle.net.exe --exec="launch 코드".
+    HoYoPlayLibrary.cs   HoYoPlay: HKCU\Software\Cognosphere\HYP\1_0\<게임 코드>(원신=hk4e_global)에서 설치 폴더를 읽음.
+                         이름은 설치 프로그램 목록의 "--uninstall_game=코드" 항목에서. 실행은 공식 바로가기와 같은
+                         launcher.exe --game=코드 — 런처가 업데이트·로그인을 계속 맡게 하려고 게임 exe를 직접 켜지 않음.
+    ShortcutLibraries.cs STOVE(sgup://)·Google Play 게임(googleplaygames://): 런처가 만든 바로가기를 찾아 그대로 실행.
     Vdf.cs               Valve 텍스트 KeyValues(.vdf/.acf) 파서.
     ImageCache.cs        타일 그림을 한 번만 내려받아 %AppData%\BlueApex\cache\games에 둔다.
 

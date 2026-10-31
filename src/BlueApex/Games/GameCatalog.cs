@@ -15,6 +15,9 @@ internal sealed record GameInfo(string Id, string Name, string Source, bool Inst
     public string? LaunchArgs { get; init; }
     public string? WorkingDir { get; init; }
 
+    /// <summary>A file whose icon stands for the game when <see cref="Exe"/>'s own icon is not usable (see ShortcutLibraries).</summary>
+    public string? IconFile { get; init; }
+
     /// <summary>Portrait box art (2:3) as the launcher's library shows it: a local file, or a URL to download once.</summary>
     public string? CoverFile { get; init; }
     public string? CoverUrl { get; init; }
@@ -51,6 +54,11 @@ internal static class GameCatalog
         "steam" => "Steam",
         "epic" => "Epic Games",
         "gog" => "GOG",
+        "battlenet" => "Battle.net",
+        "hoyoplay" => "HoYoPlay",
+        "stove" => "STOVE",
+        "gplay" => "Google Play 게임",
+        "neowiz" => "Neowiz",
         _ => source,
     };
 
@@ -70,6 +78,9 @@ internal static class GameCatalog
         Collect(games, "Steam", () => SteamLibrary.Scan(steamOwned));
         Collect(games, "Epic", EpicLibrary.Scan);
         Collect(games, "GOG", GogLibrary.Scan);
+        Collect(games, "Battle.net", BattleNetLibrary.Scan);
+        Collect(games, "HoYoPlay", HoYoPlayLibrary.Scan);
+        Collect(games, "STOVE / Google Play", ShortcutLibraries.Scan);
         // The same game can be seen twice (installed + owned list); the installed one wins.
         var merged = games.GroupBy(g => g.Id).Select(g => g.OrderByDescending(x => x.Installed).First()).ToList();
         _byId = merged.ToDictionary(g => g.Id);
@@ -102,6 +113,17 @@ internal static class GameCatalog
             case "gog":
                 GogLibrary.Launch(game);
                 break;
+            case "battlenet":
+                BattleNetLibrary.Launch(game);
+                break;
+            case "hoyoplay":
+                HoYoPlayLibrary.Launch(game);
+                break;
+            case "stove":
+            case "gplay":
+            case "neowiz":
+                ShortcutLibraries.Launch(game);
+                break;
         }
     }
 
@@ -110,6 +132,7 @@ internal static class GameCatalog
     {
         "steam" => (SteamLibrary.LaunchUri(game), SteamLibrary.ExePath),
         "epic" => (EpicLibrary.LaunchUri(game), EpicLibrary.ExePath),
+        "battlenet" => (BattleNetLibrary.Uri(game), game.Exe),
         _ => ("file:///" + (game.Exe ?? "").Replace('\\', '/'), game.Exe),
     };
 
