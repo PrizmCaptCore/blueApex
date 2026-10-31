@@ -26,6 +26,13 @@ part of BlueApex; only the generated setup program is distributed.
 license (see https://www.nuget.org/packages/Microsoft.Windows.SDK.NET.Ref). Shipped with the app (the dock's now-playing slot uses
 Windows.Media.Control) and with the media widget sample.
 
+## Microsoft.Data.Sqlite, SQLitePCLRaw, SQLite
+
+Used to read GOG Galaxy's local library database (read-only).
+`Microsoft.Data.Sqlite.dll` — Copyright (c) .NET Foundation and Contributors. MIT License. https://github.com/dotnet/efcore
+`SQLitePCLRaw.*.dll` — Copyright (c) Eric Sink. Apache License 2.0. https://github.com/ericsink/SQLitePCL.raw
+`e_sqlite3.dll` — SQLite, public domain. https://www.sqlite.org/copyright.html
+
 ## Open-Meteo (samples/WeatherWidget)
 
 Weather data by Open-Meteo.com, licensed under CC BY 4.0 (https://open-meteo.com/en/license).
