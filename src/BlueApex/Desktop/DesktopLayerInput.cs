@@ -40,185 +40,79 @@ internal interface IDesktopLayerScrollable
 }
 
 /// <summary>
-/// One low-level mouse hook for every item on the desktop layer. Those windows
-/// sit below explorer's icon view and never get input of their own, so the hook
-/// turns presses over an item into clicks, drags and right-clicks, and swallows
-/// them so explorer does not see them. Everything heavier than hit-testing is
-/// posted to the dispatcher (a COM call inside the hook makes Windows refuse it and kills the process).
+/// Watches for a left-button release over the desktop (most likely something was just dropped there),
+/// so the drawer can sort it in at once instead of at the next poll. The dock and widgets take their
+/// own clicks (<see cref="DesktopFloatWindow"/>), so the hook never swallows anything.
+///
+/// The low-level mouse hook lives on its own thread with its own message loop. Windows runs a
+/// low-level hook on the thread that installed it, and every mouse move in the system waits for it:
+/// on the UI thread, any busy moment (startup building the drawer, decoding hundreds of icons)
+/// froze the cursor, and a hook that answers too slowly is silently removed by Windows.
+/// The callback only hit-tests and posts to the dispatcher.
 /// </summary>
 internal sealed class DesktopLayerInput : IDisposable
 {
-    private const int DragThreshold = 10; // physical px
-
     private readonly DesktopHost _desktop;
     private readonly Action _desktopMouseUp;
     private readonly Dispatcher _dispatcher;
     private readonly NativeMethods.LowLevelMouseProc _proc; // kept alive for the hook's lifetime
-    private readonly IntPtr _hook;
+    private readonly Thread _thread;
+    private IntPtr _hook;
+    private uint _threadId;
 
-    private IDesktopLayerItem? _pressed;
-    private IDesktopLayerScrollable? _scrolling; // the press landed on a scrollable part of _pressed
-    private IDesktopLayerItem? _rightPressed;
-    private bool _dragging;
-    private NativeMethods.POINT _pressPoint;
-    private int _lastX, _lastY;
-    private (int X, int Y) _pressOrigin;
-
-    /// <summary>Hit-tested from the end, so later items are "on top".</summary>
-    public List<IDesktopLayerItem> Items { get; } = new();
-
-    /// <param name="desktopMouseUp">Called (on the dispatcher) after any left release over the desktop that was not on an item, i.e. after a drop.</param>
+    /// <param name="desktopMouseUp">Called (on the dispatcher) after a left release over the desktop, i.e. after a drop.</param>
     public DesktopLayerInput(DesktopHost desktop, Action desktopMouseUp)
     {
         _desktop = desktop;
         _desktopMouseUp = desktopMouseUp;
         _dispatcher = Dispatcher.CurrentDispatcher;
         _proc = HookCallback;
-        _hook = NativeMethods.SetWindowsHookEx(NativeMethods.WH_MOUSE_LL, _proc, NativeMethods.GetModuleHandle(null), 0);
+        using var installed = new ManualResetEventSlim();
+        var error = 0;
+        _thread = new Thread(() =>
+        {
+            _threadId = NativeMethods.GetCurrentThreadId();
+            _hook = NativeMethods.SetWindowsHookEx(NativeMethods.WH_MOUSE_LL, _proc, NativeMethods.GetModuleHandle(null), 0);
+            if (_hook == IntPtr.Zero) error = Marshal.GetLastWin32Error();
+            installed.Set();
+            if (_hook == IntPtr.Zero) return;
+            // The hook is called from inside this loop; WM_QUIT (from Dispose) ends it.
+            while (NativeMethods.GetMessage(out var msg, IntPtr.Zero, 0, 0) > 0)
+            {
+                NativeMethods.TranslateMessage(ref msg);
+                NativeMethods.DispatchMessage(ref msg);
+            }
+            NativeMethods.UnhookWindowsHookEx(_hook);
+        }) { IsBackground = true, Name = "BlueApex mouse hook" };
+        _thread.Start();
+        installed.Wait();
         if (_hook == IntPtr.Zero)
-            throw new Win32Exception(Marshal.GetLastWin32Error(), "마우스 훅을 설치하지 못했습니다.");
+            throw new Win32Exception(error, "마우스 훅을 설치하지 못했습니다.");
     }
 
     private bool IsDesktopAt(NativeMethods.POINT screen) =>
         NativeMethods.GetAncestor(NativeMethods.WindowFromPoint(screen), NativeMethods.GA_ROOT) == _desktop.Progman;
 
-    private IDesktopLayerItem? ItemAt(NativeMethods.POINT screen)
-    {
-        if (!IsDesktopAt(screen)) return null; // another window is in front of the desktop here
-        var p = _desktop.ScreenToIcon(screen);
-        for (var i = Items.Count - 1; i >= 0; i--)
-        {
-            var b = Items[i].Bounds;
-            if (p.X >= b.Left && p.X < b.Right && p.Y >= b.Top && p.Y < b.Bottom) return Items[i];
-        }
-        return null;
-    }
-
     private IntPtr HookCallback(int code, IntPtr wParam, IntPtr lParam)
     {
         try
         {
-            if (code >= 0)
+            if (code >= 0 && (uint)wParam == NativeMethods.WM_LBUTTONUP)
             {
-                var message = (uint)wParam;
                 var point = Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam).Point;
-
-                if (_pressed != null)
-                {
-                    if (message == NativeMethods.WM_MOUSEMOVE)
-                    {
-                        var dx = point.X - _pressPoint.X;
-                        var dy = point.Y - _pressPoint.Y;
-                        if (_scrolling != null)
-                        {
-                            // Dragging a list: scroll it instead of moving the item.
-                            if (_dragging || Math.Abs(dx) >= DragThreshold || Math.Abs(dy) >= DragThreshold)
-                            {
-                                _dragging = true;
-                                var stepX = _lastX - point.X;
-                                var stepY = _lastY - point.Y;
-                                _lastX = point.X;
-                                _lastY = point.Y;
-                                var target = _scrolling;
-                                _dispatcher.BeginInvoke(() => target.ScrollBy(stepX, stepY));
-                            }
-                        }
-                        else if (_pressed.Movable && (_dragging || Math.Abs(dx) >= DragThreshold || Math.Abs(dy) >= DragThreshold))
-                        {
-                            _dragging = true;
-                            var (areaWidth, areaHeight) = _desktop.IconAreaSize;
-                            var b = _pressed.Bounds;
-                            var x = Math.Clamp(_pressOrigin.X + dx, 0, Math.Max(0, areaWidth - (b.Right - b.Left)));
-                            var y = Math.Clamp(_pressOrigin.Y + dy, 0, Math.Max(0, areaHeight - (b.Bottom - b.Top)));
-                            _pressed.MoveTo(x, y);
-                        }
-                    }
-                    else if (message == NativeMethods.WM_LBUTTONUP)
-                    {
-                        var item = _pressed;
-                        var scrolled = _scrolling != null && _dragging;
-                        _pressed = null;
-                        _scrolling = null;
-                        if (scrolled)
-                        {
-                            _dragging = false; // a scroll ends quietly: no click, nothing to save
-                        }
-                        else if (_dragging)
-                        {
-                            _dragging = false;
-                            _dispatcher.BeginInvoke(item.Moved);
-                        }
-                        else
-                        {
-                            var p = _desktop.ScreenToIcon(point);
-                            var b = item.Bounds;
-                            _dispatcher.BeginInvoke(() => item.Click(p.X - b.Left, p.Y - b.Top));
-                        }
-                        return 1;
-                    }
-                }
-                else if (message == NativeMethods.WM_LBUTTONDOWN)
-                {
-                    var item = ItemAt(point);
-                    if (item != null)
-                    {
-                        _pressed = item;
-                        _dragging = false;
-                        _pressPoint = point;
-                        _lastX = point.X;
-                        _lastY = point.Y;
-                        _pressOrigin = (item.Bounds.Left, item.Bounds.Top);
-                        var rel = _desktop.ScreenToIcon(point);
-                        _scrolling = item is IDesktopLayerScrollable s && s.ScrollsAt(rel.X - item.Bounds.Left, rel.Y - item.Bounds.Top) ? s : null;
-                        return 1; // swallowed: explorer never sees it
-                    }
-                }
-                else if (message == NativeMethods.WM_LBUTTONUP)
-                {
-                    if (IsDesktopAt(point)) _dispatcher.BeginInvoke(_desktopMouseUp); // a drop on the desktop, most likely
-                }
-                else if (message == NativeMethods.WM_MOUSEWHEEL)
-                {
-                    // The wheel over a widget's list scrolls it; explorer never sees the event.
-                    var item = ItemAt(point);
-                    if (item is IDesktopLayerScrollable scrollable)
-                    {
-                        var rel = _desktop.ScreenToIcon(point);
-                        if (scrollable.ScrollsAt(rel.X - item.Bounds.Left, rel.Y - item.Bounds.Top))
-                        {
-                            var delta = (short)((Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam).MouseData >> 16) & 0xFFFF);
-                            var notches = -delta / 120; // WHEEL_DELTA; positive delta = away from the user
-                            if (notches != 0) _dispatcher.BeginInvoke(() => scrollable.Wheel(notches));
-                            return 1;
-                        }
-                    }
-                }
-                else if (message == NativeMethods.WM_RBUTTONDOWN)
-                {
-                    _rightPressed = ItemAt(point);
-                    if (_rightPressed != null) return 1;
-                }
-                else if (message == NativeMethods.WM_RBUTTONUP && _rightPressed != null)
-                {
-                    var item = _rightPressed;
-                    _rightPressed = null;
-                    _dispatcher.BeginInvoke(() => item.RightClick(point.X, point.Y));
-                    return 1;
-                }
+                if (IsDesktopAt(point)) _dispatcher.BeginInvoke(_desktopMouseUp); // a drop on the desktop, most likely
             }
         }
         catch (Exception ex)
         {
             Log.Write($"layer input hook error: {ex}");
-            _pressed = null;
-            _scrolling = null;
-            _rightPressed = null;
         }
         return NativeMethods.CallNextHookEx(_hook, code, wParam, lParam);
     }
 
     public void Dispose()
     {
-        NativeMethods.UnhookWindowsHookEx(_hook);
+        if (_threadId != 0) NativeMethods.PostThreadMessage(_threadId, NativeMethods.WM_QUIT, IntPtr.Zero, IntPtr.Zero);
+        _thread.Join(TimeSpan.FromSeconds(2));
     }
 }
