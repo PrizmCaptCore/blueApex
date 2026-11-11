@@ -67,6 +67,27 @@ internal static class GameCatalog
 
     public static GameInfo? Find(string id) => _byId.GetValueOrDefault(id);
 
+    /// <summary>The latest scan, by id.</summary>
+    public static IReadOnlyDictionary<string, GameInfo> All => _byId;
+
+    /// <summary>
+    /// What the game's pictures are made from: where they come from and when the local files were last
+    /// written. Launchers replace art in place (same path, new file) or under a new name or URL; either way
+    /// the stamp changes, which tells the drawer to drop the picture it remembers and load it again.
+    /// </summary>
+    public static string ArtStamp(GameInfo game)
+    {
+        static string Local(string? file) => file != null && File.Exists(file) ? $"{file}@{File.GetLastWriteTimeUtc(file).Ticks}" : "";
+        return string.Join('|', Local(game.ImageFile), game.ImageUrl, Local(game.CoverFile), game.CoverUrl, Local(game.IconFile), Local(game.Exe));
+    }
+
+    /// <summary>The pictures the game downloads (when it has no local one), for <see cref="ImageCache.RefreshStale"/>.</summary>
+    public static IEnumerable<string> ArtUrls(GameInfo game)
+    {
+        if (game.ImageUrl != null && game.ImageFile == null) yield return game.ImageUrl;
+        if (game.CoverUrl != null && game.CoverFile == null) yield return game.CoverUrl;
+    }
+
     /// <summary>
     /// Reads every launcher. Slow-ish (file parsing, a few hundred JSON entries), so call it
     /// off the UI thread. Never throws: a launcher that cannot be read is logged and skipped.

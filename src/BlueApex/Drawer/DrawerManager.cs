@@ -60,7 +60,7 @@ internal sealed class DrawerManager : IDisposable
         EnsureDefaultZone();
         Reconcile();
         Save();
-        RescanGames();
+        _ = RescanGamesAsync();
 
         _poll = new DispatcherTimer(DispatcherPriority.Background) { Interval = PollInterval };
         _poll.Tick += (_, _) => Poll();
@@ -251,7 +251,7 @@ internal sealed class DrawerManager : IDisposable
         get
         {
             if (!_gamesScanning && DateTime.UtcNow - _gamesScanned > GameRescanInterval)
-                RescanGames();
+                _ = RescanGamesAsync();
             return ShowUninstalledGames ? _games : _games.Where(g => GameOf(g.Id)?.Installed == true).ToList();
         }
     }
@@ -351,7 +351,7 @@ internal sealed class DrawerManager : IDisposable
         var count = await SteamLibrary.FetchOwnedAsync(session);
         _file.SteamLinked = true;
         Save();
-        RescanGames();
+        _ = RescanGamesAsync();
         return count;
     }
 
@@ -361,14 +361,22 @@ internal sealed class DrawerManager : IDisposable
         _file.SteamLinked = false;
         SteamLibrary.ForgetOwned();
         Save();
-        RescanGames();
+        _ = RescanGamesAsync();
         _ = BrowserSession.ClearAsync();
     }
 
-    /// <summary>Reads the launchers again (and, once a day, the Steam owned list) without blocking the UI.</summary>
-    public void RescanGames() => _ = RescanGamesAsync();
+    /// <summary>
+    /// "라이브러리 다시 읽기" / a widget's ⟳: reads the launchers again and checks downloaded pictures
+    /// older than a day, without blocking the UI.
+    /// </summary>
+    public void RescanGames() => _ = RescanGamesAsync(manual: true);
 
-    private async Task RescanGamesAsync()
+    // Downloaded game pictures are checked against the server once they are this old; sooner when the user asks.
+    private static readonly TimeSpan PictureMaxAge = TimeSpan.FromDays(7);
+    private static readonly TimeSpan PictureMaxAgeManual = TimeSpan.FromDays(1);
+    private static readonly TimeSpan PictureUnusedFor = TimeSpan.FromDays(60);
+
+    private async Task RescanGamesAsync(bool manual = false)
     {
         if (_gamesScanning) return;
         _gamesScanning = true;
@@ -377,17 +385,43 @@ internal sealed class DrawerManager : IDisposable
             if (_file.SteamLinked && SteamLibrary.OwnedCacheAge > TimeSpan.FromHours(24))
                 await RefreshSteamOwnedAsync();
             var linked = _file.SteamLinked;
-            var games = await Task.Run(() => GameCatalog.Scan(linked).Select(g => new DesktopIcon(g.Id, g.Name, 0, 0, false)).ToList());
+            var (games, artChanged) = await Task.Run(() =>
+            {
+                var before = GameCatalog.All.ToDictionary(kv => kv.Key, kv => GameCatalog.ArtStamp(kv.Value));
+                var scanned = GameCatalog.Scan(linked);
+                // A game whose pictures come from somewhere new, or from a file the launcher rewrote.
+                var art = scanned.Where(g => before.TryGetValue(g.Id, out var old) && old != GameCatalog.ArtStamp(g)).Select(g => g.Id).ToList();
+                return (scanned.Select(g => new DesktopIcon(g.Id, g.Name, 0, 0, false)).ToList(), art);
+            });
             var changed = !games.Select(g => g.Id).ToHashSet().SetEquals(_games.Select(g => g.Id)); // added or removed, not just a different count
             _games = NameOrder.Sort(games, LatinFirst);
             _gamesById = games.ToDictionary(g => g.Id);
             _gamesScanned = DateTime.UtcNow;
-            if (changed) Changed?.Invoke();
+            ForgetPictures(artChanged);
+            if (changed || artChanged.Count > 0) Changed?.Invoke();
+
+            // Then, more slowly: downloaded pictures whose URL stayed the same but whose image may not have.
+            var urls = GameCatalog.All.Values.SelectMany(g => GameCatalog.ArtUrls(g).Select(url => (g.Id, Url: url))).ToList();
+            var refreshed = await Task.Run(() =>
+            {
+                var fresh = ImageCache.RefreshStale(urls.Select(u => u.Url), manual ? PictureMaxAgeManual : PictureMaxAge);
+                ImageCache.Prune(urls.Select(u => u.Url), PictureUnusedFor);
+                return fresh;
+            });
+            var refreshedIds = urls.Where(u => refreshed.Contains(u.Url)).Select(u => u.Id).Distinct().ToList();
+            ForgetPictures(refreshedIds);
+            if (refreshedIds.Count > 0) Changed?.Invoke();
         }
         finally
         {
             _gamesScanning = false;
         }
+    }
+
+    // The drawer and widgets remember each game's picture by id; drop it so the next build loads the new one.
+    private static void ForgetPictures(IEnumerable<string> ids)
+    {
+        foreach (var id in ids) IconLoader.Forget(id);
     }
 
     // The saved browser session gives a fresh token silently; when Steam wants a new sign-in, say so once.
@@ -753,6 +787,9 @@ internal sealed class DrawerManager : IDisposable
 
     private void Poll()
     {
+        // The game list (and its pictures) also stays current while only a desktop widget shows it.
+        if (!_gamesScanning && DateTime.UtcNow - _gamesScanned > GameRescanInterval)
+            _ = RescanGamesAsync();
         List<DesktopIcon> icons;
         try
         {

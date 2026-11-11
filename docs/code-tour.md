@@ -57,7 +57,11 @@ build/
                          launcher.exe --game=코드 — 런처가 업데이트·로그인을 계속 맡게 하려고 게임 exe를 직접 켜지 않음.
     ShortcutLibraries.cs STOVE(sgup://)·Google Play 게임(googleplaygames://): 런처가 만든 바로가기를 찾아 그대로 실행.
     Vdf.cs               Valve 텍스트 KeyValues(.vdf/.acf) 파서.
-    ImageCache.cs        타일 그림을 한 번만 내려받아 %AppData%\BlueApex\cache\games에 둔다.
+    ImageCache.cs        타일 그림을 내려받아 %AppData%\BlueApex\cache\games에 둔다. 파일 수정 시각 = 마지막으로 서버와
+                         비교한 때. RefreshStale이 오래된 것을 다시 받아 내용이 바뀐 것만 알려 주고, Prune이 오래 안 쓴 것을 지운다.
+                         그림이 바뀌었는지는 DrawerManager.RescanGamesAsync가 GameCatalog.ArtStamp(경로·주소·파일 시각)를
+                         이전 검색과 비교해 판단한다. 서랍·위젯은 그림을 게임 id별로 기억하므로(IconLoader), 바뀐 게임만
+                         IconLoader.Forget으로 잊게 해야 새 그림이 보인다.
 
   Ui/                    생김새. 화면 코드는 여기 것만 가져다 쓴다 (docs/design.md)
     Theme.cs             색·모서리·간격·글자 크기 토큰. 강조색은 Windows 설정에서 읽는다.
