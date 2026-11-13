@@ -17,7 +17,7 @@ using WebView = Microsoft.Web.WebView2.Wpf.WebView2;
 
 namespace BlueApex.Widgets;
 
-/// <summary>A media player on the home screen: video sites (YouTube, 치지직, ...) and music or video files.</summary>
+/// <summary>A media player on the home screen: video sites (YouTube, Twitch, ...) and music or video files.</summary>
 internal sealed class MediaPlayerProvider : IWidgetProvider
 {
     public string Id => "player";
@@ -49,8 +49,6 @@ internal static class MediaBrowser
     public static readonly (string Label, string Url)[] Sites =
     {
         ("유튜브", "https://www.youtube.com/"),
-        ("치지직", "https://chzzk.naver.com/"),
-        ("숲 (SOOP)", "https://www.sooplive.co.kr/"),
         ("트위치", "https://www.twitch.tv/"),
     };
 }
@@ -504,7 +502,7 @@ internal sealed class MediaPlayerWidget : IBrowserWidget
     private async void ClearSignIns()
     {
         if (_web.CoreWebView2 == null) return;
-        if (MessageBox.Show("미디어 플레이어에서 로그인한 사이트(유튜브, 치지직 등)에서 모두 로그아웃하고 방문 기록을 지울까요?",
+        if (MessageBox.Show("미디어 플레이어에서 로그인한 사이트(유튜브, 트위치 등)에서 모두 로그아웃하고 방문 기록을 지울까요?",
                 "BlueApex", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
         try
         {
