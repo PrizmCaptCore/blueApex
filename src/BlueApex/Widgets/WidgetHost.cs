@@ -111,13 +111,7 @@ internal sealed class WidgetItem : IDesktopLayerItem, IDesktopLayerScrollable, I
             }
             sized.Resized += () => Resize(ToPixels(sized.DesiredSizeDip));
         }
-        var browser = _widget as IBrowserWidget;
-        _window = new DesktopFloatWindow(desktop, this, _widget.View, spec.X, spec.Y, spec.Width, spec.Height, browser: browser != null);
-        if (browser != null)
-        {
-            _window.OnTop = browser.OnTop;
-            browser.OnTopChanged += () => _window.OnTop = browser.OnTop;
-        }
+        _window = new DesktopFloatWindow(desktop, this, _widget.View, spec.X, spec.Y, spec.Width, spec.Height);
     }
 
     private (int Width, int Height) ToPixels((double Width, double Height) dip) =>

@@ -32,6 +32,12 @@ build/
     NameOrder.cs         이름 정렬(A→Z 먼저, 그다음 가나다). 구역 정렬과 게임 카드가 쓴다.
     RunningApps.cs       작업 표시줄에 보이는 창을 앱별로 묶어 찾기(EnumWindows, AppUserModelID). 독이 쓴다.
     NowPlaying.cs        지금 재생 중인 미디어(Windows 미디어 컨트롤, WinRT). 독의 미디어 칸이 쓴다.
+    BackgroundPlayer.cs  "소리만 듣기". 일반 창 하나에 WPF용 WebView2를 넣고, 재생할 땐 창을 숨긴다(숨겨도 소리는 계속 난다).
+                         모든 페이지에 넣는 ReportScript가 "소리 나는 재생 시작/상태(제목·아티스트·아트)"를 알려 주고
+                         toggle/next/prev를 받는다. 그래서 독은 Windows 미디어 컨트롤을 거치지 않고 이 플레이어를 직접 조작한다
+                         (DesktopDock.OwnPlayer). 음소거 재생(유튜브 미리보기)은 무시. 파일은 PlayerPage에 {cmd:'load'}로 넘기고,
+                         로컬 파일은 폴더마다 가짜 주소(https://f<해시>-<실행마다 바뀌는 비밀값>.blueapex/, DenyCors)로 연결한다.
+                         숨긴 페이지는 사용자 클릭이 없으니 --autoplay-policy=no-user-gesture-required가 필요하다.
     DiscordVoice.cs      디스코드 로컬 RPC(이름 있는 파이프): 음성 채널·사람·말하는 중·마이크/헤드셋. 사용자 본인 디스코드 앱으로 인증.
     ShortcutWriter.cs    게임의 .url 바로가기 만들기. 게임 타일의 "바탕화면에 바로가기 만들기"가 쓴다.
     DesktopIconView.cs   탐색기의 아이콘 뷰(COM). 셸 항목 목록, 위치 읽기/쓰기, 선택 상태. DesktopIcon 레코드(IsGame/IsVirtual)도 여기.
@@ -39,7 +45,6 @@ build/
     DesktopHost.cs       탐색기의 바탕화면 창 계층(Progman/DefView) 찾기 + Win32 함수 선언(NativeMethods).
     DesktopFloatWindow.cs ★ 위젯·독을 띄우는 창. 바탕화면 바로 위에 깔린 투명 일반 창(Rainmeter 방식)이라 모서리가 부드럽고
                          배경만 반투명. 클릭·끌기·휠을 직접 받는다. DesktopZOrder가 바탕화면이 앞에 오면 올리고 앱이 오면 내린다.
-                         browser: true면 불투명 창 + 키보드 입력 가능(미디어 플레이어), OnTop이면 DesktopZOrder에서 빠져 항상 위.
     DesktopLayerInput.cs 바탕화면 저수준 마우스 훅. 지금은 "바탕화면에 뭔가 떨어졌다"를 알아채 바로 폴링하는 데만 쓴다.
     DesktopPopupMenu.cs  바탕화면 위에서 띄우는 우클릭 메뉴.
     BackupStore.cs       아이콘 위치 스냅샷 저장/복원.
@@ -75,12 +80,6 @@ build/
     BuiltInWidgets.cs    시계·메모·"(없는 위젯)" 자리표시.
     AccountWidget.cs     런처 계정 카드 위젯(아바타·테두리·배경·상태). 데이터는 Games/Accounts.cs.
     ZoneWidget.cs        구역/게임 격자 위젯. IInternalWidget(클릭 위치·자기 크기)은 내장 전용이라 SDK에 없다. 서랍은 DrawerManager.RequestWidget으로 요청만 한다.
-                         IBrowserWidget(내장 브라우저를 담는 위젯 표시 + "항상 위")도 여기 선언.
-    MediaPlayerWidget.cs 미디어 플레이어. 화면은 WPF용 WebView2 컨트롤 하나. 사이트는 그대로 띄우고, 파일은 우리가 만든 작은
-                         재생 페이지(PlayerPage)에 메시지({cmd:'load'})로 넘긴다. 로컬 파일은 폴더마다 가짜 주소
-                         (https://f<해시>-<실행마다 바뀌는 비밀값>.blueapex/)로 연결하고 DenyCors라 다른 사이트가 읽을 수 없다.
-                         브라우저 프로필은 browser-media(게임 계정용 browser와 따로). 왜 일반 창인가: WebView2는 자식 창(HWND)이라
-                         투명(레이어드) 창 안에서는 그려지지 않아서, DesktopFloatWindow를 browser: true로 만들고 둥근 모서리는 DWM에 맡긴다.
     WidgetSpec.cs        저장 형식(종류, 위치, 크기, 설정 문자열).
 
   Zones/                 구역 데이터

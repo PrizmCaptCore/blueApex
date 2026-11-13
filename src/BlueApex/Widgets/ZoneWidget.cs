@@ -39,18 +39,6 @@ internal interface IInternalWidget : IWidget
 }
 
 /// <summary>
-/// A built-in widget whose view contains an embedded browser: the host gives it an opaque window that
-/// takes keyboard focus (see <see cref="Desktop.DesktopFloatWindow"/>), and can keep it above every app.
-/// </summary>
-internal interface IBrowserWidget : IInternalWidget
-{
-    /// <summary>Whether the widget stays above every app window ("항상 위").</summary>
-    bool OnTop { get; }
-
-    event Action? OnTopChanged;
-}
-
-/// <summary>
 /// A zone (or the installed games of a launcher) as a panel on the home screen: a 4×3
 /// grid of icons that launch on click, dragged up and down to see the rest, kept in
 /// step with the drawer. Opened from a card's right-click menu in the drawer.

@@ -110,6 +110,7 @@ public partial class App : Application
     private Hotkey? _hotkey;
     private DesktopDock? _button;
     private NowPlaying? _nowPlaying;   // what is playing, for the dock's media slot
+    private BackgroundPlayer? _player; // "소리만 듣기": sound-only player started from the dock's menu
     private DiscordVoice? _discord;    // Discord voice (the user's own Discord app), for the dock's voice slot
     private DesktopLayerInput? _layerInput;
     private WidgetHost? _widgets;
@@ -179,9 +180,9 @@ public partial class App : Application
             var desktop = DesktopHost.Find();
             _layerInput = new DesktopLayerInput(desktop, _drawer.PollNow);
             _nowPlaying = new NowPlaying();
+            _player = new BackgroundPlayer();
             _discord = new DiscordVoice(() => _drawer.DiscordCredentials, _drawer.SetDiscordRefreshToken);
-            _button = new DesktopDock(desktop, _drawer, ToggleDrawer, _nowPlaying, _discord); // the home-screen dock
-            // the dock takes its own clicks (DesktopFloatWindow); the hook only watches for drops on the desktop
+            _button = new DesktopDock(desktop, _drawer, ToggleDrawer, _nowPlaying, _player, _discord); // the home-screen dock            // the dock takes its own clicks (DesktopFloatWindow); the hook only watches for drops on the desktop
             _widgets = new WidgetHost(desktop, _layerInput, _drawer);
         }
         catch (Exception ex) when (ex is NotSupportedException or Win32Exception)
@@ -382,6 +383,7 @@ public partial class App : Application
         _widgets?.Dispose();
         _button?.Dispose();
         _nowPlaying?.Dispose();
+        _player?.Dispose();
         _discord?.Dispose();
         _window?.Close();
         _drawer?.Dispose();

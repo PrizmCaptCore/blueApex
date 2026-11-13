@@ -38,6 +38,7 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
     private readonly Dictionary<string, string?> _shortcutTargets = new(StringComparer.OrdinalIgnoreCase);
     private readonly double _scale;
     private readonly NowPlaying _media;
+    private readonly BackgroundPlayer _player;
     private readonly DiscordVoice _voice;
     private readonly Dictionary<string, ImageSource?> _avatars = new();
     private byte[]? _artBytes;
@@ -51,12 +52,13 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
     private sealed record Entry(string Name, string? Id, RunningApp? App, double Left, double Width,
         bool Divider = false, bool Drawer = false, bool Media = false, bool Voice = false);
 
-    public DesktopDock(DesktopHost desktop, DrawerManager drawer, Action open, NowPlaying media, DiscordVoice voice)
+    public DesktopDock(DesktopHost desktop, DrawerManager drawer, Action open, NowPlaying media, BackgroundPlayer player, DiscordVoice voice)
     {
         _desktop = desktop;
         _drawer = drawer;
         _open = open;
         _media = media;
+        _player = player;
         _voice = voice;
         _scale = desktop.Dpi / 96.0;
         _height = Px(Height);
@@ -67,6 +69,7 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
         _drawer.DockChanged += () => Refresh(force: true);
         _drawer.Changed += () => Refresh(force: false); // names and icons of drawer items
         _media.Changed += () => Refresh(force: false);
+        _player.Changed += () => Refresh(force: false);
         _voice.Changed += () => Refresh(force: false);
         _timer.Tick += (_, _) => Refresh(force: false);
         _timer.Start();
@@ -130,7 +133,7 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
             left += Slot;
         }
         var voice = _voice.Current;
-        var media = _media.Current;
+        var media = Media;
         if ((voice != null || media != null) && entries.Count > 0)
         {
             entries.Add(new Entry("", null, null, left, DividerWidth, Divider: true));
@@ -214,9 +217,13 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
 
     // --- now playing ---
 
+    // Our own "소리만 듣기" player wins while it has something; otherwise whatever Windows reports (Spotify, browsers...).
+    private bool OwnPlayer => _player.Current != null;
+    private NowPlayingInfo? Media => _player.Current ?? _media.Current;
+
     private FrameworkElement MediaSlot()
     {
-        var info = _media.Current!;
+        var info = Media!;
         if (!ReferenceEquals(info.Art, _artBytes))
         {
             _artBytes = info.Art;
@@ -286,6 +293,11 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
     // Clicking the art or title brings the playing app forward, if it has a window.
     private void ShowMediaApp()
     {
+        if (OwnPlayer)
+        {
+            _player.ShowWindow();
+            return;
+        }
         var appId = _media.Current?.AppId;
         if (string.IsNullOrEmpty(appId)) return;
         var exe = appId.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? appId : appId + ".exe";
@@ -468,9 +480,9 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
             else
                 switch ((int)((inside - MediaButtons) / MediaButton))
                 {
-                    case 0: _media.Previous(); break;
-                    case 1: _media.TogglePlayPause(); break;
-                    default: _media.Next(); break;
+                    case 0: if (OwnPlayer) _player.Previous(); else _media.Previous(); break;
+                    case 1: if (OwnPlayer) _player.TogglePlayPause(); else _media.TogglePlayPause(); break;
+                    default: if (OwnPlayer) _player.Next(); else _media.Next(); break;
                 }
             return;
         }
@@ -504,7 +516,7 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
             items.Add(("음성 채널 사람 보기", () => ShowMembers(screenX, screenY)));
             items.Add((null, null));
         }
-        else if (entry is { Media: true })
+        else if (entry is { Media: true } && !OwnPlayer)
         {
             items.Add(("재생 중인 앱으로 가기", ShowMediaApp));
             items.Add((null, null));
@@ -520,6 +532,16 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
                 items.Add(("독에 고정", () => _drawer.AddToDock(e.App.AppId != null ? "aumid:" + e.App.AppId : e.App.ExePath!)));
             items.Add((null, null));
         }
+        // "소리만 듣기": sound with no picture, controlled from the media slot (see BackgroundPlayer).
+        items.Add(("소리만 듣기: 유튜브에서 고르기...", _player.OpenYouTube));
+        items.Add(("소리만 듣기: 음악 파일 열기...", _player.OpenFiles));
+        items.Add(("소리만 듣기: 주소로 열기...", _player.OpenAddress));
+        if (_player.Active)
+        {
+            items.Add(("플레이어 화면 보기", _player.ShowWindow));
+            items.Add(("플레이어 끄기", _player.Stop));
+        }
+        items.Add((null, null));
         items.Add(("서랍 열기", _open));
         items.Add(("독 위치 초기화", () =>
         {
