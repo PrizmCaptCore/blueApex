@@ -39,6 +39,7 @@ build/
     DesktopHost.cs       탐색기의 바탕화면 창 계층(Progman/DefView) 찾기 + Win32 함수 선언(NativeMethods).
     DesktopFloatWindow.cs ★ 위젯·독을 띄우는 창. 바탕화면 바로 위에 깔린 투명 일반 창(Rainmeter 방식)이라 모서리가 부드럽고
                          배경만 반투명. 클릭·끌기·휠을 직접 받는다. DesktopZOrder가 바탕화면이 앞에 오면 올리고 앱이 오면 내린다.
+                         browser: true면 불투명 창 + 키보드 입력 가능(미디어 플레이어), OnTop이면 DesktopZOrder에서 빠져 항상 위.
     DesktopLayerInput.cs 바탕화면 저수준 마우스 훅. 지금은 "바탕화면에 뭔가 떨어졌다"를 알아채 바로 폴링하는 데만 쓴다.
     DesktopPopupMenu.cs  바탕화면 위에서 띄우는 우클릭 메뉴.
     BackupStore.cs       아이콘 위치 스냅샷 저장/복원.
@@ -74,6 +75,12 @@ build/
     BuiltInWidgets.cs    시계·메모·"(없는 위젯)" 자리표시.
     AccountWidget.cs     런처 계정 카드 위젯(아바타·테두리·배경·상태). 데이터는 Games/Accounts.cs.
     ZoneWidget.cs        구역/게임 격자 위젯. IInternalWidget(클릭 위치·자기 크기)은 내장 전용이라 SDK에 없다. 서랍은 DrawerManager.RequestWidget으로 요청만 한다.
+                         IBrowserWidget(내장 브라우저를 담는 위젯 표시 + "항상 위")도 여기 선언.
+    MediaPlayerWidget.cs 미디어 플레이어. 화면은 WPF용 WebView2 컨트롤 하나. 사이트는 그대로 띄우고, 파일은 우리가 만든 작은
+                         재생 페이지(PlayerPage)에 메시지({cmd:'load'})로 넘긴다. 로컬 파일은 폴더마다 가짜 주소
+                         (https://f<해시>-<실행마다 바뀌는 비밀값>.blueapex/)로 연결하고 DenyCors라 다른 사이트가 읽을 수 없다.
+                         브라우저 프로필은 browser-media(게임 계정용 browser와 따로). 왜 일반 창인가: WebView2는 자식 창(HWND)이라
+                         투명(레이어드) 창 안에서는 그려지지 않아서, DesktopFloatWindow를 browser: true로 만들고 둥근 모서리는 DWM에 맡긴다.
     WidgetSpec.cs        저장 형식(종류, 위치, 크기, 설정 문자열).
 
   Zones/                 구역 데이터

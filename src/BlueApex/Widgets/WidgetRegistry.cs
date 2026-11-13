@@ -22,6 +22,7 @@ internal sealed class WidgetRegistry
     {
         Register(new ClockProvider());
         Register(new MemoProvider());
+        Register(new MediaPlayerProvider());
         Register(new ZoneWidgetProvider(drawer));
         foreach (var account in Games.Accounts.All)
             Register(new AccountWidgetProvider(account));

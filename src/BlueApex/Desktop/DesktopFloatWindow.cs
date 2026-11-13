@@ -32,21 +32,29 @@ internal sealed class DesktopFloatWindow : IDisposable
 
     /// <param name="x">Icon-view coordinates, physical pixels (the same coordinates widgets have always saved).</param>
     /// <param name="cornerDip">Content is clipped to this radius, so even a plugin that paints a square background gets round, smooth corners.</param>
-    public DesktopFloatWindow(DesktopHost desktop, IDesktopLayerItem item, FrameworkElement content, int x, int y, int width, int height, double cornerDip = Ui.Theme.RadiusCard)
+    /// <param name="browser">
+    /// The content hosts an embedded browser (WebView2). A browser is a native child window, and those are
+    /// not drawn inside a per-pixel-transparent window, so this one is opaque and lets Windows 11 round its
+    /// corners instead. It also takes keyboard focus when clicked (typing a search or a password), which the
+    /// other surfaces deliberately never do.
+    /// </param>
+    public DesktopFloatWindow(DesktopHost desktop, IDesktopLayerItem item, FrameworkElement content, int x, int y, int width, int height,
+        double cornerDip = Ui.Theme.RadiusCard, bool browser = false)
     {
         _desktop = desktop;
         _item = item;
         _cornerDip = cornerDip;
+        _browser = browser;
         _window = new Window
         {
             WindowStyle = WindowStyle.None,
-            AllowsTransparency = true,
-            Background = Brushes.Transparent,
+            AllowsTransparency = !browser,
+            Background = browser ? Ui.Theme.Panel : Brushes.Transparent,
             ResizeMode = ResizeMode.NoResize,
             ShowInTaskbar = false,
             ShowActivated = false,
             Topmost = false,
-            Content = Rounded(content),
+            Content = browser ? content : Rounded(content),
             Title = "BlueApex",
             WindowStartupLocation = WindowStartupLocation.Manual,
             Left = -32000, // placed in physical pixels right after the handle exists
@@ -57,7 +65,12 @@ internal sealed class DesktopFloatWindow : IDisposable
             _hwnd = new WindowInteropHelper(_window).Handle;
             // Tool window: no Alt+Tab entry. No-activate: clicking never steals focus or raises it.
             var ex = GetWindowLong(_hwnd, GWL_EXSTYLE);
-            SetWindowLong(_hwnd, GWL_EXSTYLE, ex | WS_EX_TOOLWINDOW | NativeMethods.WS_EX_NOACTIVATE);
+            SetWindowLong(_hwnd, GWL_EXSTYLE, ex | WS_EX_TOOLWINDOW | (browser ? 0 : NativeMethods.WS_EX_NOACTIVATE));
+            if (browser)
+            {
+                var round = DWMWCP_ROUND;
+                DwmSetWindowAttribute(_hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
+            }
             SetBounds(x, y, width, height);
         };
         _window.MouseLeftButtonDown += OnLeftDown;
@@ -80,9 +93,35 @@ internal sealed class DesktopFloatWindow : IDisposable
     }
 
     /// <summary>Swaps what the window draws (the dock redraws when its apps change).</summary>
-    public void SetContent(FrameworkElement content) => _window.Content = Rounded(content);
+    public void SetContent(FrameworkElement content) => _window.Content = _browser ? content : Rounded(content);
 
     private readonly double _cornerDip;
+    private readonly bool _browser;
+    private bool _onTop;
+
+    /// <summary>
+    /// Keeps the window above every app ("항상 위", for watching a video while working) instead of
+    /// on the home-screen layer just above the desktop.
+    /// </summary>
+    public bool OnTop
+    {
+        get => _onTop;
+        set
+        {
+            if (_onTop == value) return;
+            _onTop = value;
+            if (value)
+            {
+                DesktopZOrder.Unregister(this);
+                _window.Topmost = true;
+            }
+            else
+            {
+                _window.Topmost = false;
+                DesktopZOrder.Register(this);
+            }
+        }
+    }
 
     // A host that clips whatever it shows to a rounded rectangle of its own size (anti-aliased).
     private FrameworkElement Rounded(FrameworkElement content)
@@ -195,12 +234,16 @@ internal sealed class DesktopFloatWindow : IDisposable
 
     public void Dispose()
     {
-        DesktopZOrder.Unregister(this);
+        if (!_onTop) DesktopZOrder.Unregister(this);
         _window.Close();
     }
 
     private const int GWL_EXSTYLE = -20;
     private const int WS_EX_TOOLWINDOW = 0x80;
+    private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+    private const int DWMWCP_ROUND = 2;
+
+    [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 
     [DllImport("user32.dll")] private static extern int GetWindowLong(IntPtr hwnd, int index);
     [DllImport("user32.dll")] private static extern int SetWindowLong(IntPtr hwnd, int index, int value);
