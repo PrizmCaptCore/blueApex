@@ -659,24 +659,100 @@ internal sealed class DrawerManager : IDisposable
         Changed?.Invoke();
     }
 
-    /// <summary>Sorts the default zone's icons into the first other zone whose patterns match. Returns how many moved.</summary>
-    public int ApplyRulesToUnassigned()
+    /// <summary>One step of "규칙대로 지금 정리": an icon going to another zone, or, when <see cref="IntoFolder"/>, a file moving into a portal's folder.</summary>
+    public sealed record RuleMove(DesktopIcon Icon, Zone From, Zone To)
     {
-        var sorted = 0;
-        foreach (var icon in IconsOf(DefaultZone).ToList())
+        public bool IntoFolder => To.IsPortal;
+    }
+
+    /// <summary>
+    /// What "규칙대로 지금 정리" would do, for every zone (not only the default): each desktop icon goes to the
+    /// first zone whose rules match it, unless the zone it is in already matches it. A portal zone's rules move
+    /// the file itself into that folder. Nothing changes until <see cref="ApplyRules"/>.
+    /// </summary>
+    public List<RuleMove> PlanRules()
+    {
+        var withRules = _file.Zones.Where(z => !IsDefault(z) && z.Patterns.Count > 0).ToList();
+        var moves = new List<RuleMove>();
+        foreach (var zone in _file.Zones.Where(z => !z.IsPortal))
+            foreach (var icon in MembersOf(zone).Where(i => !i.IsGame).ToList())
+            {
+                if (ZoneRules.Target(new[] { zone }, icon) != null) continue; // already where its rules put it
+                var target = ZoneRules.Target(withRules, icon);
+                if (target == null || target == zone) continue;
+                if (target.IsPortal && !CanMoveInto(icon, target.PortalPath!)) continue;
+                moves.Add(new RuleMove(icon, zone, target));
+            }
+        return moves;
+    }
+
+    // A real file or folder on the desktop, going somewhere it is not already, and not into itself.
+    private static bool CanMoveInto(DesktopIcon icon, string folder)
+    {
+        if (icon.IsShellItem || !Directory.Exists(folder)) return false;
+        var isFolder = Directory.Exists(icon.Id);
+        if (!isFolder && !File.Exists(icon.Id)) return false;
+        var target = Path.GetFullPath(folder).TrimEnd('\\') + "\\";
+        if (string.Equals(Path.GetDirectoryName(icon.Id) + "\\", target, StringComparison.OrdinalIgnoreCase)) return false;
+        return !(isFolder && target.StartsWith(Path.GetFullPath(icon.Id).TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Carries out a plan from <see cref="PlanRules"/>. Zone moves only change the layout. Folder moves go through
+    /// the Windows file copier, one batch per folder: undoable with Ctrl+Z in Explorer, and a name already in the
+    /// folder gets a number added instead of being overwritten. Every file move is logged.
+    /// </summary>
+    public (int Zoned, int Moved, int Failed) ApplyRules(IReadOnlyCollection<RuleMove> moves)
+    {
+        var zoned = 0;
+        foreach (var move in moves.Where(m => !m.IntoFolder))
         {
-            var target = ZoneRules.Target(RuleZones, icon);
-            if (target == null) continue;
-            DefaultZone.Members.Remove(icon.Id);
-            target.Members.Add(icon.Id);
-            sorted++;
+            move.From.Members.Remove(move.Icon.Id);
+            move.To.Members.Add(move.Icon.Id);
+            zoned++;
         }
-        if (sorted > 0)
+        var moved = 0;
+        var failed = 0;
+        foreach (var batch in moves.Where(m => m.IntoFolder).GroupBy(m => m.To.PortalPath!))
+        {
+            var items = batch.ToList();
+            // The app hid these files; a hidden file would stay hidden in its new folder too.
+            var hiddenByUs = items.Where(m => _file.HiddenByApp.Contains(m.Icon.Id)).Select(m => m.Icon.Id).ToHashSet();
+            foreach (var id in hiddenByUs) Unhide(id);
+            var operation = new SHFILEOPSTRUCT
+            {
+                wFunc = FO_MOVE,
+                pFrom = string.Join('\0', items.Select(m => m.Icon.Id)) + "\0\0", // double-null-terminated list
+                pTo = batch.Key + "\0\0",
+                fFlags = FOF_ALLOWUNDO | FOF_RENAMEONCOLLISION | FOF_NOCONFIRMMKDIR,
+            };
+            var result = SHFileOperation(ref operation);
+            foreach (var move in items)
+            {
+                var gone = !File.Exists(move.Icon.Id) && !Directory.Exists(move.Icon.Id);
+                if (gone)
+                {
+                    move.From.Members.Remove(move.Icon.Id);
+                    moved++;
+                    Log.Write($"rules: moved {move.Icon.Id} -> {batch.Key}");
+                }
+                else
+                {
+                    failed++;
+                    // Still on the desktop (cancelled, in use...): back to how it was.
+                    if (hiddenByUs.Contains(move.Icon.Id) && DesktopCatalog.SetHidden(move.Icon.Id, true))
+                        _file.HiddenByApp.Add(move.Icon.Id);
+                }
+            }
+            if (result != 0 || operation.fAnyOperationsAborted) Log.Write($"rules: move into {batch.Key} ended with {result:X} (aborted: {operation.fAnyOperationsAborted})");
+        }
+        if (zoned + moved + failed > 0)
         {
             Save();
+            Poll(); // moved files leave the desktop list right away
             Changed?.Invoke();
         }
-        return sorted;
+        return (zoned, moved, failed);
     }
 
     // --- actions ---
@@ -709,8 +785,8 @@ internal sealed class DrawerManager : IDisposable
         return ok;
     }
 
-    private const uint FO_DELETE = 3;
-    private const ushort FOF_SILENT = 0x4, FOF_NOCONFIRMATION = 0x10, FOF_ALLOWUNDO = 0x40;
+    private const uint FO_MOVE = 1, FO_DELETE = 3;
+    private const ushort FOF_SILENT = 0x4, FOF_RENAMEONCOLLISION = 0x8, FOF_NOCONFIRMATION = 0x10, FOF_ALLOWUNDO = 0x40, FOF_NOCONFIRMMKDIR = 0x200;
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct SHFILEOPSTRUCT

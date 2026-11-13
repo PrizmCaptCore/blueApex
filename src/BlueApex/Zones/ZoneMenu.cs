@@ -19,6 +19,12 @@ internal static class ZoneMenu
         "예: *.url    *.lnk    Steam*    folder:*    file:*.pdf\n" +
         "새로 생기는 아이콘 중 규칙에 맞는 것이 이 구역으로 들어옵니다.";
 
+    public const string PortalPatternHint =
+        "한 줄에 하나씩. 파일 이름에 대한 와일드카드입니다.\n" +
+        "예: *견적서*    *.pdf    스크린샷*    file:*보고서*\n" +
+        "규칙에 맞는 바탕화면 파일을 이 폴더로 실제로 옮깁니다. \"규칙대로 지금 정리\"를 누를 때만 옮기고\n" +
+        "(무엇이 옮겨질지 먼저 보여 줍니다), 새로 생기는 파일을 저절로 옮기지는 않습니다.";
+
     /// <summary>Shows a one-box dialog; the entered text, or null if cancelled.</summary>
     public static string? AskText(string title, string current, string? hint, bool multiline)
     {

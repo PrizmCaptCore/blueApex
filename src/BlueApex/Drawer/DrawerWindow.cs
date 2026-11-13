@@ -555,6 +555,15 @@ internal sealed class DrawerWindow : Window
         return card;
     }
 
+    // Edits a zone's rules, then offers to apply them now (the list of what would move comes first).
+    private void EditRules(Zone zone, string hint)
+    {
+        var text = ZoneMenu.AskText("자동 분류 규칙: " + zone.Title, string.Join(Environment.NewLine, zone.Patterns), hint, multiline: true);
+        if (text == null) return;
+        _drawer.SetPatterns(zone, text.Split('\n'));
+        if (zone.Patterns.Count > 0) RulesDialog.Run(_drawer);
+    }
+
     // The zone's right-click menu: on its section in the drawer and on its name in the sidebar.
     private ContextMenu ZoneContextMenu(Zone zone)
     {
@@ -599,6 +608,7 @@ internal sealed class DrawerWindow : Window
                     "서랍을 열 때 포털 폴더를 몇 줄까지 보여 줄지 (한 줄 4개). 나머지는 \"더 보기\"로 봅니다. 1~50.", multiline: false);
                 if (int.TryParse(text?.Trim(), out var rows)) _drawer.PortalRows = rows;
             }));
+            menu.Items.Add(MenuItem("자동 분류 규칙 (바탕화면 파일을 이 폴더로 옮기기)...", () => EditRules(zone, ZoneMenu.PortalPatternHint)));
             menu.Items.Add(MenuItem("포털 해제 (빈 구역으로)", () => _drawer.SetPortal(zone, null)));
             menu.Items.Add(new Separator());
             menu.Items.Add(MenuItem("구역 삭제", () =>
@@ -615,14 +625,7 @@ internal sealed class DrawerWindow : Window
                 if (folder != null) _drawer.SetPortal(zone, folder);
             }));
             // The default zone is where unclaimed icons land, so rules on it would be pointless.
-            menu.Items.Add(MenuItem("자동 분류 규칙...", () =>
-            {
-                var text = ZoneMenu.AskText("자동 분류 규칙: " + zone.Title, string.Join(Environment.NewLine, zone.Patterns), ZoneMenu.PatternHint, multiline: true);
-                if (text == null) return;
-                _drawer.SetPatterns(zone, text.Split('\n'));
-                if (zone.Patterns.Count > 0 && MessageBox.Show($"'{_drawer.DefaultZone.Title}' 구역의 아이콘에 지금 적용할까요?", "자동 분류 규칙", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
-                    _drawer.ApplyRulesToUnassigned();
-            }));
+            menu.Items.Add(MenuItem("자동 분류 규칙...", () => EditRules(zone, ZoneMenu.PatternHint)));
             menu.Items.Add(MenuItem("기본 구역으로 지정", () => _drawer.SetDefaultZone(zone)));
             menu.Items.Add(MenuItem("이름순으로 정렬 (한 번)", () => _drawer.SortZone(zone)));
             menu.Items.Add(new Separator());

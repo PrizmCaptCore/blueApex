@@ -208,12 +208,7 @@ public partial class App : Application
 
         var menu = new System.Windows.Forms.ContextMenuStrip();
         menu.Items.Add("서랍 열기", null, (_, _) => ToggleDrawer());
-        menu.Items.Add("규칙대로 지금 정리", null, (_, _) =>
-        {
-            var count = _drawer.ApplyRulesToUnassigned();
-            MessageBox.Show(count > 0 ? $"아이콘 {count}개를 규칙에 따라 정리했습니다." : "규칙에 맞는 아이콘이 없습니다.\n(서랍에서 구역 제목 우클릭 → 자동 분류 규칙)",
-                "BlueApex", MessageBoxButton.OK, MessageBoxImage.Information);
-        });
+        menu.Items.Add("규칙대로 지금 정리...", null, (_, _) => RulesDialog.Run(_drawer));
         menu.Items.Add("레이아웃 파일 열기", null, (_, _) => Process.Start("notepad.exe", LayoutStore.FilePath));
         if (_widgets != null)
         {
