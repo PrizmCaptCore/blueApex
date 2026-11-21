@@ -505,6 +505,39 @@ internal sealed class DrawerManager : IDisposable
         Save();
     }
 
+    // --- Spotify (the user's own developer app; see Desktop/Spotify.cs) ---
+
+    /// <summary>The saved Spotify Client ID, or null when not set up (the dock then shows no Spotify menu).</summary>
+    public string? SpotifyClientId => string.IsNullOrWhiteSpace(_file.SpotifyClientId) ? null : _file.SpotifyClientId;
+
+    /// <summary>The sign-in Spotify issued, or null when not connected (or saved under another Windows account).</summary>
+    public string? SpotifyRefreshToken => Secret.Unprotect(_file.SpotifyRefreshToken);
+
+    /// <summary>Stores a new Client ID (forgetting the old sign-in, which belonged to the old app); null removes it.</summary>
+    public void SetSpotifyApp(string? clientId)
+    {
+        _file.SpotifyClientId = string.IsNullOrWhiteSpace(clientId) ? null : clientId.Trim();
+        _file.SpotifyRefreshToken = null;
+        Save();
+    }
+
+    public void SetSpotifyRefreshToken(string? token)
+    {
+        _file.SpotifyRefreshToken = token == null ? null : Secret.Protect(token);
+        Save();
+    }
+
+    /// <summary>Volume of the built-in player (0 to 1), remembered across restarts.</summary>
+    public double PlayerVolume
+    {
+        get => Math.Clamp(_file.PlayerVolume, 0, 1);
+        set
+        {
+            _file.PlayerVolume = Math.Clamp(value, 0, 1);
+            Save();
+        }
+    }
+
     // --- dock favourites ---
 
     /// <summary>Raised when the dock's favourites change (the dock redraws).</summary>

@@ -35,6 +35,16 @@ internal sealed class LayoutFile
     public string? DiscordSecret { get; set; }
     public string? DiscordRefreshToken { get; set; }
 
+    /// <summary>
+    /// The user's own Spotify developer app for the dock's Spotify menu (advanced, off until set).
+    /// The Client ID is not a secret; the refresh token is DPAPI-protected (<see cref="Secret"/>).
+    /// </summary>
+    public string? SpotifyClientId { get; set; }
+    public string? SpotifyRefreshToken { get; set; }
+
+    /// <summary>Volume of the built-in player ("소리만 듣기", Spotify), 0 to 1; set from the dock's volume bar.</summary>
+    public double PlayerVolume { get; set; } = 1;
+
     /// <summary>The dock's horizontal centre and top edge (icon-view pixels); null = bottom centre.</summary>
     public int? DockCenterX { get; set; }
     public int? DockY { get; set; }

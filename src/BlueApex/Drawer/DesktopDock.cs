@@ -40,6 +40,7 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
     private readonly NowPlaying _media;
     private readonly BackgroundPlayer _player;
     private readonly DiscordVoice _voice;
+    private readonly Spotify _spotify;
     private readonly Dictionary<string, ImageSource?> _avatars = new();
     private byte[]? _artBytes;
     private ImageSource? _art;
@@ -52,8 +53,9 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
     private sealed record Entry(string Name, string? Id, RunningApp? App, double Left, double Width,
         bool Divider = false, bool Drawer = false, bool Media = false, bool Voice = false);
 
-    public DesktopDock(DesktopHost desktop, DrawerManager drawer, Action open, NowPlaying media, BackgroundPlayer player, DiscordVoice voice)
+    public DesktopDock(DesktopHost desktop, DrawerManager drawer, Action open, NowPlaying media, BackgroundPlayer player, DiscordVoice voice, Spotify spotify)
     {
+        _spotify = spotify;
         _desktop = desktop;
         _drawer = drawer;
         _open = open;
@@ -146,8 +148,8 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
         }
         if (media != null)
         {
-            entries.Add(new Entry(media.Title, null, null, left, MediaWidth, Media: true));
-            left += MediaWidth;
+            entries.Add(new Entry(media.Title, null, null, left, MediaWidthNow, Media: true));
+            left += MediaWidthNow;
         }
         if (entries.Count > 0)
         {
@@ -158,7 +160,7 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
 
         // Anything visible that changed means a redraw: slots, the track, and who is talking.
         var signature = string.Join("|", entries.Select(e => $"{e.Id}:{e.App?.Key}:{e.Divider}:{e.Drawer}"))
-            + $"#{media?.Title}|{media?.Artist}|{media?.Playing}|{media?.Art?.Length}"
+            + $"#{media?.Title}|{media?.Artist}|{media?.Playing}|{media?.Art?.Length}|{OwnPlayer}|{_player.Muted}"
             + $"#{voice?.ChannelName}|{voice?.SelfMute}|{voice?.SelfDeaf}|"
             + string.Join(",", voice?.Members.Select(m => $"{m.Id}{m.Speaking}{m.Muted}{m.Deafened}") ?? Array.Empty<string>());
         if (!force && signature == _signature)
@@ -221,6 +223,9 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
     private bool OwnPlayer => _player.Current != null;
     private NowPlayingInfo? Media => _player.Current ?? _media.Current;
 
+    // Our own player gets one more button, the speaker (volume); another app's volume is not ours to set.
+    private double MediaWidthNow => OwnPlayer ? MediaWidth + MediaButton : MediaWidth;
+
     private FrameworkElement MediaSlot()
     {
         var info = Media!;
@@ -249,7 +254,7 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
         };
         Canvas.SetLeft(text, 6 + ArtSize + 8);
         Canvas.SetTop(text, Height / 2 - 18);
-        var canvas = new Canvas { Width = MediaWidth, Height = Height, Children = { art, text } };
+        var canvas = new Canvas { Width = MediaWidthNow, Height = Height, Children = { art, text } };
         // Previous, play/pause, next (Segoe icon glyphs).
         var glyphs = new[] { "", info.Playing ? "" : "", "" };
         for (var i = 0; i < glyphs.Length; i++)
@@ -259,6 +264,15 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
             Canvas.SetLeft(button, MediaButtons + i * MediaButton);
             Canvas.SetTop(button, (Height - 24) / 2);
             canvas.Children.Add(button);
+        }
+        if (OwnPlayer)
+        {
+            // Speaker (Segoe icon E767), or the crossed-out one (E74F) while muted; clicking opens the volume menu.
+            var speaker = Glyph(_player.Muted ? "" : "", 14, _player.Muted ? Theme.TextFaint : Theme.Text);
+            speaker.Width = MediaButton;
+            Canvas.SetLeft(speaker, MediaButtons + glyphs.Length * MediaButton);
+            Canvas.SetTop(speaker, (Height - 24) / 2);
+            canvas.Children.Add(speaker);
         }
         return canvas;
     }
@@ -482,7 +496,16 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
                 {
                     case 0: if (OwnPlayer) _player.Previous(); else _media.Previous(); break;
                     case 1: if (OwnPlayer) _player.TogglePlayPause(); else _media.TogglePlayPause(); break;
-                    default: if (OwnPlayer) _player.Next(); else _media.Next(); break;
+                    case 2: if (OwnPlayer) _player.Next(); else _media.Next(); break;
+                    default: // the speaker, which only our own player has
+                        if (!OwnPlayer) break;
+                        // The bar opens centred on the speaker button. Screen points are pixels; WPF windows want DIPs.
+                        var middle = entry.Left + MediaButtons + 3.5 * MediaButton;
+                        var top = _desktop.IconToScreen(_x + Px(middle), _y);
+                        var bottom = _desktop.IconToScreen(_x + Px(middle), _y + _height);
+                        VolumePopup.Show(top.X / _scale, top.Y / _scale, bottom.Y / _scale, _player,
+                            save: v => _drawer.PlayerVolume = v, mutedChanged: () => Refresh(force: false));
+                        break;
                 }
             return;
         }
@@ -540,6 +563,18 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
         {
             items.Add(("플레이어 화면 보기", _player.ShowWindow));
             items.Add(("플레이어 끄기", _player.Stop));
+        }
+        // Spotify as a remote control (see Desktop/Spotify.cs): only for users who saved their own Client ID.
+        if (_spotify.Configured)
+        {
+            items.Add((null, null));
+            if (_spotify.Linked)
+            {
+                items.Add(("Spotify: 검색해서 틀기...", () => SpotifyPicker.Search(_spotify)));
+                items.Add(("Spotify: 내 재생목록", () => SpotifyPicker.Playlists(_spotify)));
+                items.Add(("Spotify: 좋아요 표시한 곡", () => SpotifyPicker.Liked(_spotify)));
+            }
+            else items.Add(("Spotify 연결...", () => SpotifySetup.Show(_drawer, _spotify)));
         }
         items.Add((null, null));
         items.Add(("서랍 열기", _open));

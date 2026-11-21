@@ -54,6 +54,15 @@ internal sealed class BackgroundPlayer : IDisposable
     private string? _artUrl;
     private byte[]? _art;
 
+    // Spotify's Web Playback SDK runs in a page of our own under this made-up address (https, because
+    // protected playback only works on a "secure" page). See StartSpotifyDeviceAsync.
+    private const string SpotifyHost = "spotify.blueapex";
+    private Func<Task<string>>? _spotifyToken;
+    private TaskCompletionSource<string>? _spotifyReady;
+    private string? _spotifyDevice;
+    private int _spotifyErrors;
+    private DateTime _spotifyErrorAt;
+
     /// <summary>What plays (or is paused) in the player; null when it has nothing. Shown by the dock's media slot.</summary>
     public NowPlayingInfo? Current { get; private set; }
 
@@ -113,6 +122,110 @@ internal sealed class BackgroundPlayer : IDisposable
         if (search) ShowWindow();
     }
 
+    // --- Spotify without the Spotify app ---
+
+    /// <summary>
+    /// Turns this player into a Spotify playback device named "BlueApex" (Spotify's Web Playback SDK in the
+    /// hidden browser) and returns its device id; <see cref="Spotify"/> then tells Spotify to play there.
+    /// Whatever played here before (YouTube, files) is replaced. Throws <see cref="SpotifyException"/> when
+    /// the browser cannot do it (no WebView2, protected playback refused, not Premium...).
+    /// </summary>
+    /// <param name="token">Gives a valid Spotify access token; the SDK asks again whenever it needs a new one.</param>
+    public async Task<string> StartSpotifyDeviceAsync(Func<Task<string>> token)
+    {
+        if (_spotifyDevice != null) return _spotifyDevice;
+        if (_spotifyReady is { Task.IsCompleted: false } starting) return await starting.Task;
+        var core = await EnsureAsync() ?? throw new SpotifyException("내장 브라우저(WebView2)를 시작하지 못했습니다.");
+        _spotifyToken = token;
+        var ready = _spotifyReady = new TaskCompletionSource<string>();
+        HideWindow();
+        core.Navigate($"https://{SpotifyHost}/");
+        if (await Task.WhenAny(ready.Task, Task.Delay(TimeSpan.FromSeconds(20))) != ready.Task)
+            ready.TrySetException(new SpotifyException("내장 Spotify 플레이어가 20초 안에 준비되지 않았습니다."));
+        return await ready.Task;
+    }
+
+    // Only our own page may ask for the token or claim to be the device: any site can post messages to us.
+    private bool OnSpotifyPage(string? source) =>
+        Uri.TryCreate(source, UriKind.Absolute, out var uri) && uri.Scheme == "https" && uri.Host == SpotifyHost;
+
+    private async Task SendSpotifyTokenAsync()
+    {
+        if (_spotifyToken == null) return;
+        try
+        {
+            var token = await _spotifyToken();
+            // Checked again after the wait: the browser may have gone elsewhere, and the token must not follow it.
+            if (_web?.CoreWebView2 is { } core && OnSpotifyPage(core.Source))
+                core.PostWebMessageAsJson(JsonSerializer.Serialize(new { cmd = "token", token }));
+        }
+        catch (SpotifyException ex)
+        {
+            Log.Write($"player: spotify token unavailable: {ex.Message}");
+            _spotifyReady?.TrySetException(ex);
+        }
+    }
+
+    // Leaves our Spotify page, which ends the device (see NavigationStarting) and silences it.
+    private void StopSpotifyPage()
+    {
+        _spotifyDevice = null;
+        if (_web?.CoreWebView2 is { } core && OnSpotifyPage(core.Source)) core.Navigate("about:blank");
+        Publish(null);
+    }
+
+    private void OnSpotifyMessage(string ev, JsonElement root)
+    {
+        switch (ev)
+        {
+            case "sp-token":
+                _ = SendSpotifyTokenAsync();
+                break;
+            case "sp-ready":
+                _spotifyDevice = Text(root, "device");
+                Log.Write("player: spotify device ready");
+                ApplyVolume();
+                _spotifyReady?.TrySetResult(_spotifyDevice);
+                break;
+            case "sp-gone": // the SDK lost its connection; the next play starts it again
+                _spotifyDevice = null;
+                break;
+            case "sp-error":
+                var kind = Text(root, "kind");
+                var message = Text(root, "message");
+                Log.Write($"player: spotify {kind}: {message}");
+                if (kind == "playback_error")
+                {
+                    // One track failing is fine (Spotify moves on). Several in a row means nothing will play here,
+                    // and Spotify would race through the whole playlist failing each track: stop instead.
+                    var now = DateTime.UtcNow;
+                    _spotifyErrors = now - _spotifyErrorAt < TimeSpan.FromSeconds(3) ? _spotifyErrors + 1 : 1;
+                    _spotifyErrorAt = now;
+                    if (_spotifyErrors < 3) break;
+                    _spotifyErrors = 0;
+                    Log.Write("player: spotify stopped after repeated playback errors");
+                    StopSpotifyPage();
+                    // Shown after this browser callback returns: a dialog must not block inside it.
+                    Application.Current.Dispatcher.BeginInvoke(() => MessageBox.Show(
+                        "Spotify가 내장 플레이어에서 곡을 재생하지 못해 멈췄습니다.\n\n" +
+                        "트레이 \"Spotify 연결 (고급)...\"에서 \"연결\"을 다시 누른 뒤 시도해 주세요.\n" +
+                        "그래도 같으면 %AppData%\\BlueApex\\log.txt의 \"player: spotify\" 줄을 확인해 주세요.",
+                        "BlueApex", MessageBoxButton.OK, MessageBoxImage.Warning));
+                    break;
+                }
+                _spotifyReady?.TrySetException(new SpotifyException(kind switch
+                {
+                    "initialization_error" => "이 PC의 내장 브라우저가 Spotify의 보호된 재생(DRM)을 시작하지 못했습니다: " + message,
+                    "authentication_error" => "내장 플레이어 로그인이 거부됐습니다. 트레이 \"Spotify 연결 (고급)...\"에서 \"연결\"을 다시 눌러 주세요: " + message,
+                    "account_error" => "내장 플레이어는 Spotify Premium 계정만 쓸 수 있습니다.",
+                    _ => "내장 Spotify 플레이어를 켜지 못했습니다: " + message,
+                }));
+                // The SDK can still report "ready" after one of these; a device that cannot log in must not be used.
+                StopSpotifyPage();
+                break;
+        }
+    }
+
     /// <summary>Brings the player window back (to pick something else); playing goes on.</summary>
     public void ShowWindow()
     {
@@ -139,6 +252,41 @@ internal sealed class BackgroundPlayer : IDisposable
         if (_window == null) return;
         _quitting = true;
         _window.Close(); // Closed disposes the browser
+    }
+
+    // --- volume ---
+    // The browser has no volume knob of its own, so the page is told: each page's __blueapex.volume sets it on
+    // whatever plays there (media elements, or Spotify's player). A new page starts at full volume, so it is
+    // sent again whenever a page finishes loading or something starts playing. Mute is the browser's own switch.
+
+    private double _volume = 1;
+    private bool _muted;
+
+    /// <summary>How loud this player is, 0 to 1 (the PC's own volume still applies on top).</summary>
+    public double Volume
+    {
+        get => _volume;
+        set
+        {
+            _volume = Math.Clamp(value, 0, 1);
+            ApplyVolume();
+        }
+    }
+
+    public bool Muted
+    {
+        get => _muted;
+        set
+        {
+            _muted = value;
+            if (_web?.CoreWebView2 is { } core) core.IsMuted = value;
+        }
+    }
+
+    private void ApplyVolume()
+    {
+        var v = _volume.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture); // "0.6", never "0,6"
+        Run($"window.__blueapexVolume = {v}; window.__blueapex && window.__blueapex.volume && window.__blueapex.volume({v})");
     }
 
     public void TogglePlayPause() => Run("window.__blueapex && window.__blueapex.toggle()");
@@ -224,8 +372,24 @@ internal sealed class BackgroundPlayer : IDisposable
         {
             if (!_expectPlayer && _filesMode) _filesMode = false; // the user browsed away from the files
             _expectPlayer = false;
+            // Any new page ends the Spotify device (a reload makes a new one); leaving for another site also ends a pending start.
+            _spotifyDevice = null;
+            if (!OnSpotifyPage(e.Uri)) _spotifyReady?.TrySetException(new SpotifyException("내장 Spotify 플레이어가 다른 재생으로 바뀌었습니다."));
         };
-        core.NavigationCompleted += (_, _) => _playerReady?.TrySetResult();
+        // Our Spotify page is not a file: requests to its made-up address are answered from memory.
+        core.AddWebResourceRequestedFilter($"https://{SpotifyHost}/*", CoreWebView2WebResourceContext.All);
+        core.WebResourceRequested += (_, e) =>
+        {
+            var isPage = Uri.TryCreate(e.Request.Uri, UriKind.Absolute, out var uri) && uri.AbsolutePath == "/";
+            e.Response = core.Environment.CreateWebResourceResponse(new MemoryStream(Encoding.UTF8.GetBytes(isPage ? SpotifyPage : "")),
+                isPage ? 200 : 404, isPage ? "OK" : "Not Found", "Content-Type: text/html; charset=utf-8");
+        };
+        core.NavigationCompleted += (_, _) =>
+        {
+            _playerReady?.TrySetResult();
+            ApplyVolume();
+        };
+        core.IsMuted = _muted;
         Log.Write("player: started");
         Changed?.Invoke();
         return core;
@@ -242,6 +406,8 @@ internal sealed class BackgroundPlayer : IDisposable
         _mappedHosts.Clear();
         _artUrl = null;
         _art = null;
+        _spotifyDevice = null;
+        _spotifyReady?.TrySetException(new SpotifyException("플레이어가 꺼졌습니다."));
         Current = null;
         if (!_disposed) Changed?.Invoke();
     }
@@ -323,10 +489,16 @@ internal sealed class BackgroundPlayer : IDisposable
         {
             return;
         }
-        var ev = root.TryGetProperty("ev", out var v) ? v.GetString() : null;
+        var ev = root.TryGetProperty("ev", out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+        if (ev != null && ev.StartsWith("sp-", StringComparison.Ordinal))
+        {
+            if (OnSpotifyPage(e.Source)) OnSpotifyMessage(ev, root);
+            return;
+        }
         switch (ev)
         {
             case "started":
+                ApplyVolume();
                 Report(root);
                 // Something was picked while the window showed: give it a moment, then step aside.
                 if (_browsing && _window?.IsVisible == true)
@@ -420,6 +592,7 @@ internal sealed class BackgroundPlayer : IDisposable
     private const string ReportScript = """
         (() => {
           if (window.top !== window || window.__blueapex) return;
+          if (location.hostname === 'spotify.blueapex') return; // our Spotify page reports for itself (SpotifyPage)
           const post = m => { try { chrome.webview.postMessage(m); } catch (e) {} };
           let active = null; // the last element that started playing with sound
           const media = () => (active && active.isConnected) ? active : null;
@@ -431,13 +604,15 @@ internal sealed class BackgroundPlayer : IDisposable
           };
           document.addEventListener('play', e => {
             const m = e.target;
-            if (m.muted || m.volume === 0) return;
+            if (m.muted || (m.volume === 0 && window.__blueapexVolume !== 0)) return; // silent by the site, not by our volume bar
+            if (typeof window.__blueapexVolume === 'number') m.volume = window.__blueapexVolume;
             active = m;
             post(state('started'));
           }, true);
           for (const n of ['pause', 'ended', 'loadedmetadata']) document.addEventListener(n, () => post(state('state')), true);
           setInterval(() => post(state('state')), 3000);
           window.__blueapex = {
+            volume(v) { for (const m of document.querySelectorAll('video, audio')) m.volume = v; },
             toggle() { const m = media(); if (m) { if (m.paused) m.play().catch(() => {}); else m.pause(); } },
             next() { const b = document.querySelector('.ytp-next-button'); if (b) b.click(); else post({ ev: 'next' }); },
             prev() {
@@ -448,6 +623,57 @@ internal sealed class BackgroundPlayer : IDisposable
             },
           };
         })();
+        """;
+
+    // Spotify's Web Playback SDK: makes this browser a Spotify device called "BlueApex". The SDK asks for an
+    // access token whenever it needs one (sp-token -> C# answers {cmd:'token'}), says when the device exists
+    // (sp-ready, with its id) and what plays; the same "state" message and __blueapex buttons as ReportScript
+    // let the dock show and drive it like any other playback here.
+    private const string SpotifyPage = """
+        <!doctype html><html><head><meta charset="utf-8"><title>BlueApex · Spotify</title></head>
+        <body style="margin:0;height:100vh;background:#121214;color:#fff;font-family:'Segoe UI','Malgun Gothic',sans-serif;display:flex;align-items:center;justify-content:center">
+        <div style="text-align:center;max-width:80vw">
+          <img id="art" style="width:260px;height:260px;border-radius:12px;display:none">
+          <h2 id="title">BlueApex 내장 Spotify 플레이어</h2>
+          <div id="artist" style="opacity:.7">독 우클릭 메뉴에서 곡을 고르면 여기서 소리가 납니다.</div>
+        </div>
+        <script>
+          const post = m => chrome.webview.postMessage(m);
+          let waiting = []; // the SDK's callbacks that are waiting for a token
+          chrome.webview.addEventListener('message', e => {
+            if (!e.data || e.data.cmd !== 'token') return;
+            const list = waiting; waiting = [];
+            for (const give of list) give(e.data.token);
+          });
+          const report = s => {
+            const t = s && s.track_window && s.track_window.current_track;
+            const images = (t && t.album && t.album.images) || [];
+            const big = images.slice().sort((a, b) => (b.width || 0) - (a.width || 0))[0];
+            const art = big ? big.url : '';
+            const artist = t ? (t.artists || []).map(a => a.name).join(', ') : '';
+            post({ ev: 'state', hasMedia: !!t, playing: !!(t && !s.paused), title: t ? t.name : '', artist, art });
+            if (!t) return;
+            document.getElementById('title').textContent = t.name;
+            document.getElementById('artist').textContent = artist;
+            const img = document.getElementById('art');
+            if (art) { img.src = art; img.style.display = 'inline'; }
+          };
+          window.onSpotifyWebPlaybackSDKReady = () => {
+            const player = new Spotify.Player({ name: 'BlueApex', getOAuthToken: give => { waiting.push(give); post({ ev: 'sp-token' }); } });
+            player.addListener('ready', e => post({ ev: 'sp-ready', device: e.device_id }));
+            player.addListener('not_ready', () => post({ ev: 'sp-gone' }));
+            for (const kind of ['initialization_error', 'authentication_error', 'account_error', 'playback_error'])
+              player.addListener(kind, e => post({ ev: 'sp-error', kind, message: (e && e.message) || '' }));
+            player.addListener('player_state_changed', report);
+            window.__blueapex = { toggle: () => player.togglePlay(), next: () => player.nextTrack(), prev: () => player.previousTrack(),
+                                  volume: v => player.setVolume(v) };
+            if (typeof window.__blueapexVolume === 'number') player.setVolume(window.__blueapexVolume);
+            setInterval(() => player.getCurrentState().then(report), 3000);
+            player.connect().then(ok => { if (!ok) post({ ev: 'sp-error', kind: 'connect', message: 'connect failed' }); });
+          };
+        </script>
+        <script src="https://sdk.scdn.co/spotify-player.js"></script>
+        </body></html>
         """;
 
     // Plays one file at a time; C# sends {cmd:'load'} and hears back ended / error / next / prev.

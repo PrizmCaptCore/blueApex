@@ -174,16 +174,21 @@ public partial class App : Application
             return;
         }
 
+        // Spotify remote control (the user's own Spotify developer app), for the dock's menu. Made outside the
+        // desktop layer below: its settings window lives in the tray menu, which always exists.
+        var spotify = new Spotify(() => _drawer.SpotifyClientId, () => _drawer.SpotifyRefreshToken, _drawer.SetSpotifyRefreshToken);
+
         // The desktop layer (button, widgets) needs the desktop window layout; without it the hotkey and tray still work.
         try
         {
             var desktop = DesktopHost.Find();
             _layerInput = new DesktopLayerInput(desktop, _drawer.PollNow);
             _nowPlaying = new NowPlaying();
-            _player = new BackgroundPlayer();
+            _player = new BackgroundPlayer { Volume = _drawer.PlayerVolume };
+            spotify.Player = _player; // lets Spotify play through it when no Spotify app is running
             _discord = new DiscordVoice(() => _drawer.DiscordCredentials, _drawer.SetDiscordRefreshToken);
-            _button = new DesktopDock(desktop, _drawer, ToggleDrawer, _nowPlaying, _player, _discord); // the home-screen dock            // the dock takes its own clicks (DesktopFloatWindow); the hook only watches for drops on the desktop
-            _widgets = new WidgetHost(desktop, _layerInput, _drawer);
+            _button = new DesktopDock(desktop, _drawer, ToggleDrawer, _nowPlaying, _player, _discord, spotify); // the home-screen dock            // the dock takes its own clicks (DesktopFloatWindow); the hook only watches for drops on the desktop
+            _widgets = new WidgetHost(desktop, _layerInput, _drawer, spotify);
         }
         catch (Exception ex) when (ex is NotSupportedException or Win32Exception)
         {
@@ -213,8 +218,15 @@ public partial class App : Application
         if (_widgets != null)
         {
             var add = new System.Windows.Forms.ToolStripMenuItem("위젯 추가");
-            foreach (var kind in _widgets.Kinds)
-                add.DropDownItems.Add(kind.DisplayName, null, (_, _) => _widgets.Add(kind));
+            // Filled each time it opens: which kinds are offered can change while running (Spotify appears once set up).
+            void FillWidgetMenu()
+            {
+                add.DropDownItems.Clear();
+                foreach (var kind in _widgets.Kinds)
+                    add.DropDownItems.Add(kind.DisplayName, null, (_, _) => _widgets.Add(kind));
+            }
+            add.DropDownOpening += (_, _) => FillWidgetMenu();
+            FillWidgetMenu(); // a submenu with no items would not show its arrow
             menu.Items.Add(add);
         }
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
@@ -242,6 +254,7 @@ public partial class App : Application
 
         // The boot screen: one of Steam's startup movies, played when the logon task starts the app.
         menu.Items.Add("디스코드 음성 연결 (고급)...", null, (_, _) => DiscordSetup.Show(_drawer, _discord));
+        menu.Items.Add("Spotify 연결 (고급)...", null, (_, _) => SpotifySetup.Show(_drawer, spotify));
 
         var movies = new System.Windows.Forms.ToolStripMenuItem("로그인 시 시작 영상 (Steam 부팅 화면)");
         movies.DropDownOpening += (_, _) => FillMovieMenu(movies);

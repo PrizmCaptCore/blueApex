@@ -18,11 +18,12 @@ internal sealed class WidgetRegistry
 
     private readonly Dictionary<string, IWidgetProvider> _providers = new(StringComparer.OrdinalIgnoreCase);
 
-    public WidgetRegistry(Drawer.DrawerManager drawer)
+    public WidgetRegistry(Drawer.DrawerManager drawer, Desktop.Spotify spotify)
     {
         Register(new ClockProvider());
         Register(new MemoProvider());
         Register(new ZoneWidgetProvider(drawer));
+        Register(new SpotifyWidgetProvider(spotify));
         foreach (var account in Games.Accounts.All)
             Register(new AccountWidgetProvider(account));
         foreach (var folder in new[] { AppPluginFolder, UserPluginFolder })

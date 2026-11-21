@@ -13,22 +13,28 @@ internal sealed class WidgetHost : IDisposable
     private readonly DesktopLayerInput _input;
     private readonly DrawerManager _drawer;
     private readonly WidgetRegistry _registry;
+    private readonly Spotify _spotify;
     private readonly List<WidgetItem> _items = new();
 
-    public WidgetHost(DesktopHost desktop, DesktopLayerInput input, DrawerManager drawer)
+    public WidgetHost(DesktopHost desktop, DesktopLayerInput input, DrawerManager drawer, Spotify spotify)
     {
         _desktop = desktop;
         _input = input;
         _drawer = drawer;
-        _registry = new WidgetRegistry(drawer);
+        _spotify = spotify;
+        _registry = new WidgetRegistry(drawer, spotify);
         foreach (var spec in _drawer.Widgets.ToList())
             Create(spec);
         // The drawer asks for a widget (e.g. "open this zone on the desktop") without knowing about us.
         _drawer.WidgetRequested += (type, settings) => Add(_registry.Resolve(type), settings);
     }
 
-    /// <summary>Widget kinds the user can add from the tray menu: built-in and plugins, minus those that need a card to come from.</summary>
-    public IEnumerable<IWidgetProvider> Kinds => _registry.Providers.Where(p => p is not ZoneWidgetProvider);
+    /// <summary>
+    /// Widget kinds the user can add from the tray menu right now: built-in and plugins, minus those that need a
+    /// card to come from, and minus Spotify until a Client ID is saved (most users never set that up).
+    /// </summary>
+    public IEnumerable<IWidgetProvider> Kinds =>
+        _registry.Providers.Where(p => p is not ZoneWidgetProvider && (p is not SpotifyWidgetProvider || _spotify.Configured));
 
     public void Add(IWidgetProvider provider, string settings = "")
     {
