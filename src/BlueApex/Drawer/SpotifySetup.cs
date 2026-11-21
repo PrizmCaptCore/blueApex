@@ -29,13 +29,18 @@ internal static class SpotifySetup
                                   "2. Redirect URIs에 아래 주소를 그대로 넣고 \"Add\"를 누릅니다.\n" +
                                   "3. 사용할 API로 \"Web API\"와 \"Web Playback SDK\"를 체크하고 저장합니다.\n" +
                                   "4. 앱 화면의 Client ID를 복사해 아래에 붙여 넣고 \"연결\"을 누르면 브라우저에 Spotify 승인 화면이 뜹니다.\n\n" +
-                                  "Client secret은 쓰지 않습니다. 로그인 토큰은 이 Windows 계정에서만 풀리도록 암호화해서 저장합니다."));
+                                  "Client secret은 쓰지 않습니다. 로그인 토큰은 이 Windows 계정에서만 풀리도록 암호화해서 저장합니다.\n" +
+                                  "Spotify 규정상 연결은 6개월 뒤에 끝나며, 그때 이 창에서 \"연결\"을 다시 누르면 됩니다(Client ID는 그대로)."));
 
         // Read-only but selectable, so the address can be copied exactly.
         var redirect = new TextBox { Text = Spotify.RedirectUri, IsReadOnly = true, MinWidth = 460, Margin = new Thickness(0, 2, 0, Theme.Space2) };
         var clientId = new TextBox { Text = drawer.SpotifyClientId ?? "", MinWidth = 460, Margin = new Thickness(0, 2, 0, Theme.Space3) };
         var status = new TextBlock { Foreground = Theme.TextDim, Margin = new Thickness(0, 0, 0, Theme.Space3), TextWrapping = TextWrapping.Wrap, Width = 460 };
-        void ShowStatus() => status.Text = "상태: " + (spotify.Linked ? "연결됨" : spotify.Configured ? "Client ID만 저장됨 (\"연결\"을 눌러 주세요)" : "연결 안 됨");
+        // Spotify ends every sign-in 6 months after "연결", however often it was used; say when, so it is no surprise.
+        void ShowStatus() => status.Text = "상태: " + (
+            !spotify.Linked ? (spotify.Configured ? "Client ID만 저장됨 (\"연결\"을 눌러 주세요)" : "연결 안 됨")
+            : drawer.SpotifyLinkEnds is { } ends ? $"연결됨 · {ends.ToLocalTime():yyyy-MM-dd}쯤 Spotify가 연결을 끝냅니다(규정상 6개월). 그때 \"연결\"만 다시 누르면 됩니다."
+            : "연결됨");
         ShowStatus();
 
         var connect = new Button { Content = "연결", Width = 90, IsDefault = true, Margin = new Thickness(0, 0, Theme.Space2, 0) };

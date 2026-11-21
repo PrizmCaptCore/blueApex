@@ -124,6 +124,9 @@ internal sealed class BackgroundPlayer : IDisposable
 
     // --- Spotify without the Spotify app ---
 
+    /// <summary>Whether we hold a device id from an earlier start (it may have gone stale; see StartSpotifyDeviceAsync).</summary>
+    public bool HasSpotifyDevice => _spotifyDevice != null;
+
     /// <summary>
     /// Turns this player into a Spotify playback device named "BlueApex" (Spotify's Web Playback SDK in the
     /// hidden browser) and returns its device id; <see cref="Spotify"/> then tells Spotify to play there.
@@ -131,8 +134,14 @@ internal sealed class BackgroundPlayer : IDisposable
     /// the browser cannot do it (no WebView2, protected playback refused, not Premium...).
     /// </summary>
     /// <param name="token">Gives a valid Spotify access token; the SDK asks again whenever it needs a new one.</param>
-    public async Task<string> StartSpotifyDeviceAsync(Func<Task<string>> token)
+    /// <param name="fresh">
+    /// Throw away the device we think we have and make a new one. Needed when Spotify answers "device not found":
+    /// after the network was away for a while (sleep, a dropped connection) Spotify forgets the device, and the
+    /// id we remembered points at nothing.
+    /// </param>
+    public async Task<string> StartSpotifyDeviceAsync(Func<Task<string>> token, bool fresh = false)
     {
+        if (fresh) _spotifyDevice = null;
         if (_spotifyDevice != null) return _spotifyDevice;
         if (_spotifyReady is { Task.IsCompleted: false } starting) return await starting.Task;
         var core = await EnsureAsync() ?? throw new SpotifyException("내장 브라우저(WebView2)를 시작하지 못했습니다.");
@@ -163,6 +172,9 @@ internal sealed class BackgroundPlayer : IDisposable
         {
             Log.Write($"player: spotify token unavailable: {ex.Message}");
             _spotifyReady?.TrySetException(ex);
+            // The SDK asked for a token (usually to reconnect after the network came back) and got none, so it
+            // stays disconnected and Spotify drops the device. Forget the id: the next play makes a new device.
+            _spotifyDevice = null;
         }
     }
 

@@ -42,6 +42,9 @@ internal sealed class LayoutFile
     public string? SpotifyClientId { get; set; }
     public string? SpotifyRefreshToken { get; set; }
 
+    /// <summary>When the user last pressed "연결" (UTC). Spotify ends a sign-in 6 months after this, whatever happens since.</summary>
+    public DateTime? SpotifyLinkedAt { get; set; }
+
     /// <summary>Volume of the built-in player ("소리만 듣기", Spotify), 0 to 1; set from the dock's volume bar.</summary>
     public double PlayerVolume { get; set; } = 1;
 
@@ -138,6 +141,15 @@ internal static class LayoutStore
     public static void Save(LayoutFile layout)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-        File.WriteAllText(FilePath, JsonSerializer.Serialize(layout, Options));
+        // Written to a side file, forced onto the disk, then swapped in with one rename. Writing layout.json
+        // in place would leave half a file if the PC lost power mid-write (a laptop battery running out),
+        // and a half file means starting from an empty layout. A rename either happened or it did not.
+        var temp = FilePath + ".tmp";
+        using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            JsonSerializer.Serialize(stream, layout, Options);
+            stream.Flush(flushToDisk: true);
+        }
+        File.Move(temp, FilePath, overwrite: true);
     }
 }

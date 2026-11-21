@@ -518,14 +518,23 @@ internal sealed class DrawerManager : IDisposable
     {
         _file.SpotifyClientId = string.IsNullOrWhiteSpace(clientId) ? null : clientId.Trim();
         _file.SpotifyRefreshToken = null;
+        _file.SpotifyLinkedAt = null;
         Save();
     }
 
-    public void SetSpotifyRefreshToken(string? token)
+    /// <param name="token">The refresh token to keep; null forgets the sign-in.</param>
+    /// <param name="newSignIn">True when the user just pressed "연결" (starts the 6 months); false for the hourly renewals.</param>
+    public void SetSpotifyRefreshToken(string? token, bool newSignIn)
     {
+        // The field is set before saving: if writing the file fails, this run still has the new token.
         _file.SpotifyRefreshToken = token == null ? null : Secret.Protect(token);
+        if (token == null) _file.SpotifyLinkedAt = null;
+        else if (newSignIn) _file.SpotifyLinkedAt = DateTime.UtcNow;
         Save();
     }
+
+    /// <summary>The day Spotify will end the current sign-in (6 months after "연결"), or null when unknown.</summary>
+    public DateTime? SpotifyLinkEnds => _file.SpotifyLinkedAt?.AddMonths(6);
 
     /// <summary>Volume of the built-in player (0 to 1), remembered across restarts.</summary>
     public double PlayerVolume

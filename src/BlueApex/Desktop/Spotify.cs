@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -56,16 +57,20 @@ internal sealed class Spotify
 
     private readonly Func<string?> _clientId;
     private readonly Func<string?> _refreshToken;
-    private readonly Action<string?> _saveRefreshToken;
+    private readonly Action<string?, bool> _saveRefreshToken;
     private readonly SemaphoreSlim _tokenLock = new(1, 1); // one refresh at a time: each refresh replaces the refresh token
     private CancellationTokenSource? _connecting;
     private string? _access;
-    private DateTime _accessUntil;
+    private DateTime _accessUntil; // wall-clock time, so the hours a laptop spent asleep count
+    private int _signIn;           // goes up at every "연결 해제": an answer that started before it is thrown away
 
     /// <param name="clientId">Read each time, so new settings apply without a restart.</param>
     /// <param name="refreshToken">The stored sign-in, or null.</param>
-    /// <param name="saveRefreshToken">Stores (protected) the refresh token Spotify issues; null forgets it.</param>
-    public Spotify(Func<string?> clientId, Func<string?> refreshToken, Action<string?> saveRefreshToken)
+    /// <param name="saveRefreshToken">
+    /// Stores (protected) the refresh token Spotify issues; null forgets it. The flag says whether it comes
+    /// from a new sign-in ("연결") rather than a renewal: Spotify's 6 months count from the sign-in.
+    /// </param>
+    public Spotify(Func<string?> clientId, Func<string?> refreshToken, Action<string?, bool> saveRefreshToken)
     {
         _clientId = clientId;
         _refreshToken = refreshToken;
@@ -184,8 +189,23 @@ internal sealed class Spotify
     public void Disconnect()
     {
         CancelConnect();
+        _signIn++; // a renewal still on its way must not bring the sign-in back when it lands
         _access = null;
-        _saveRefreshToken(null);
+        Keep(null, newSignIn: false);
+    }
+
+    // Hands the refresh token to be stored. Failing to write the file (disk full, file locked) must not fail
+    // the play that caused the renewal: the token is already held in memory and goes to disk with the next save.
+    private void Keep(string? refreshToken, bool newSignIn)
+    {
+        try
+        {
+            _saveRefreshToken(refreshToken, newSignIn);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log.Write($"spotify: could not save the sign-in now (kept in memory): {ex.Message}");
+        }
     }
 
     private static void Reply(HttpListenerContext context, int status, string message)
@@ -214,8 +234,20 @@ internal sealed class Spotify
 
     // Asks Spotify for tokens (first sign-in or refresh) and keeps them. Call with _tokenLock held.
     // The access token lasts an hour and lives only in memory; the refresh token is stored, protected.
+    //
+    // What can go wrong around sleep / a dropped network, and what happens then:
+    //  - no network (lid just opened, Wi-Fi not back yet): the request fails, nothing changed at Spotify,
+    //    the stored token is untouched and the next try works.
+    //  - Spotify answers with something that is not its JSON (a hotel Wi-Fi login page, a 502): same, untouched.
+    //  - the request reached Spotify but the answer was lost on the way back: Spotify may have replaced the
+    //    refresh token with one we never received. Nothing on our side can prevent that; the next renewal
+    //    then gets "invalid_grant" and the user presses "연결" once (the Client ID stays).
+    //  - "invalid_grant" is the one answer that means the sign-in is really over (also: 6 months passed, or
+    //    access was removed on spotify.com). Spotify says not to retry it, so the token is dropped.
     private async Task TokenAsync(Dictionary<string, string> form)
     {
+        var signIn = _signIn;
+        var isRenewal = form["grant_type"] == "refresh_token";
         string text;
         bool ok;
         try
@@ -232,16 +264,18 @@ internal sealed class Spotify
         {
             using var doc = JsonDocument.Parse(text);
             var root = doc.RootElement;
+            // "연결 해제" (or a new Client ID) happened while we waited: this answer belongs to the old sign-in.
+            if (isRenewal && signIn != _signIn) throw new SpotifyException(NotLinked);
             if (!ok)
             {
                 var error = Str(root, "error");
                 Log.Write($"spotify: token refused: {error} {Str(root, "error_description")}");
-                if (error == "invalid_grant" && form["grant_type"] == "refresh_token")
+                if (error == "invalid_grant" && isRenewal)
                 {
-                    // The stored sign-in no longer works (revoked, or replaced by another PC): ask again rather than fail forever.
                     _access = null;
-                    _saveRefreshToken(null);
-                    throw new SpotifyException("Spotify 연결이 만료됐습니다. 트레이 메뉴 \"Spotify 연결 (고급)...\"에서 다시 연결해 주세요.");
+                    Keep(null, newSignIn: false);
+                    throw new SpotifyException("Spotify 연결이 끝났습니다(Spotify 규정상 6개월마다 다시 연결해야 합니다). " +
+                                               "트레이 메뉴 \"Spotify 연결 (고급)...\"에서 \"연결\"을 눌러 주세요.");
                 }
                 throw new SpotifyException(error == "invalid_client"
                     ? "Spotify가 이 Client ID를 모릅니다. 대시보드의 Client ID를 다시 확인해 주세요."
@@ -250,7 +284,8 @@ internal sealed class Spotify
             _access = Str(root, "access_token") ?? throw new SpotifyException("Spotify가 토큰을 주지 않았습니다.");
             var seconds = root.TryGetProperty("expires_in", out var e) && e.TryGetInt32(out var s) ? s : 3600;
             _accessUntil = DateTime.UtcNow.AddSeconds(seconds - 60);
-            if (Str(root, "refresh_token") is { } refresh) _saveRefreshToken(refresh); // a refresh may or may not issue a new one
+            // A renewal may or may not come with a new refresh token; without one the stored token stays in use.
+            if (Str(root, "refresh_token") is { } refresh) Keep(refresh, newSignIn: !isRenewal);
         }
         catch (JsonException)
         {
@@ -465,19 +500,32 @@ internal sealed class Spotify
     private async Task StartAsync(object what)
     {
         var player = Player ?? throw new SpotifyException("바탕화면 층을 쓸 수 없어 내장 플레이어가 꺼져 있습니다.");
-        var device = await player.StartSpotifyDeviceAsync(() => AccessTokenAsync(fresh: false));
-        var path = "/me/player/play?device_id=" + Uri.EscapeDataString(device);
-        // A device that has only just appeared can be unknown to Spotify's servers for a moment (404): retried briefly.
-        for (var attempt = 0; ; attempt++)
+        // "Device not found" (404) has two causes, told apart by whether the device is new:
+        //  - a device made a moment ago is not known to Spotify's servers yet: wait a little and try again;
+        //  - a device we remembered from earlier is gone (Spotify forgets it when the network was away for a
+        //    while): waiting cannot help, so make a new device and send the play there.
+        var remembered = player.HasSpotifyDevice;
+        for (var round = 0; ; round++)
         {
-            try
+            var isNew = round > 0 || !remembered;
+            var device = await player.StartSpotifyDeviceAsync(() => AccessTokenAsync(fresh: false), fresh: round > 0);
+            var path = "/me/player/play?device_id=" + Uri.EscapeDataString(device);
+            for (var attempt = 0; ; attempt++)
             {
-                using var _ = await SendAsync(HttpMethod.Put, path, what);
-                return;
-            }
-            catch (SpotifyException ex) when (ex.Status == 404 && attempt < 3)
-            {
-                await Task.Delay(700);
+                try
+                {
+                    using var _ = await SendAsync(HttpMethod.Put, path, what);
+                    return;
+                }
+                catch (SpotifyException ex) when (ex.Status == 404 && isNew && attempt < 3)
+                {
+                    await Task.Delay(700);
+                }
+                catch (SpotifyException ex) when (ex.Status == 404 && !isNew)
+                {
+                    Log.Write("spotify: the remembered device is gone, starting a new one");
+                    break; // out of the retries, into the next round with a fresh device
+                }
             }
         }
     }
