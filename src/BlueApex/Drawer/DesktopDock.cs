@@ -19,7 +19,7 @@ namespace BlueApex.Drawer;
 /// brings its window forward, clicking a favourite that is not running starts it.
 /// Lives in a <see cref="DesktopFloatWindow"/> just above the desktop, like the widgets.
 /// </summary>
-internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
+internal sealed class DesktopDock : IDesktopLayerItem, IDesktopLayerScrollable, IDisposable
 {
     // Layout, in DIPs.
     private const double Slot = 52, IconSize = 36, Pad = 8, Height = 64, DividerWidth = 13, DotSize = 5;
@@ -75,6 +75,8 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
         _voice.Changed += () => Refresh(force: false);
         _timer.Tick += (_, _) => Refresh(force: false);
         _timer.Start();
+        _progressTimer.Tick += (_, _) => UpdateProgress();
+        _progressTimer.Start();
     }
 
     private int Px(double dip) => (int)Math.Round(dip * _scale);
@@ -224,7 +226,71 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
     private NowPlayingInfo? Media => _player.Current ?? _media.Current;
 
     // Our own player gets one more button, the speaker (volume); another app's volume is not ours to set.
-    private double MediaWidthNow => OwnPlayer ? MediaWidth + MediaButton : MediaWidth;
+    private double MediaWidthNow => OwnPlayer ? MediaWidth + 2 * MediaButton : MediaWidth; // + speaker, + current list
+
+    // The progress bar: ProgressInset from each side, ProgressHeight thick, with a round knob, in the middle
+    // of the bottom ProgressBand of the slot. A click anywhere in that band jumps there; a drag that starts
+    // in it moves the knob instead of the dock (see ScrollsAt below).
+    private const double ProgressInset = 6, ProgressHeight = 5, ProgressKnob = 12, ProgressBand = 16;
+    private double ProgressWidth => MediaWidthNow - 2 * ProgressInset;
+    private Border? _progressFill, _progressTrack;
+    private Ellipse? _progressKnob;
+    private readonly DispatcherTimer _progressTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
+    private double _seekX;         // while the knob is dragged: where the mouse is, in DIPs from the slot's left edge
+    private double? _dragFraction; // while the knob is dragged: where it is (0..1); null when not dragging
+
+    // Where along the bar a point is (0..1). The knob's middle follows the mouse, so the ends are exactly 0 and 1.
+    private double ProgressFraction(double insideSlot) =>
+        Math.Clamp((insideSlot - ProgressInset - ProgressKnob / 2) / (ProgressWidth - ProgressKnob), 0, 1);
+
+    private void UpdateProgress()
+    {
+        if (_progressFill == null || _progressTrack == null || _progressKnob == null) return;
+        var progress = OwnPlayer ? _player.Progress : null;
+        // No length known (a live stream): no bar at all rather than an empty one.
+        _progressTrack.Visibility = _progressFill.Visibility = _progressKnob.Visibility = progress == null ? Visibility.Hidden : Visibility.Visible;
+        if (progress is not { } p) return;
+        // While dragging, the knob shows where it is held, not where the music is.
+        var fraction = _dragFraction ?? p.Position / p.Duration;
+        var knobLeft = (ProgressWidth - ProgressKnob) * fraction;
+        _progressFill.Width = knobLeft + ProgressKnob / 2; // ends under the knob's middle
+        Canvas.SetLeft(_progressKnob, ProgressInset + knobLeft);
+    }
+
+    // --- dragging the knob (IDesktopLayerScrollable) ---
+    // The dock's window asks "does a press here scroll something?" before deciding that a drag moves the dock.
+    // Answering yes for the progress band makes a drag there arrive as ScrollBy steps instead. The music jumps
+    // once, when the knob is let go (ScrollEnded): jumping at every step would send Spotify a flood of commands.
+
+    public bool ScrollsAt(int x, int y)
+    {
+        if (EntryAt(x) is not { Media: true } entry || !OwnPlayer || y / _scale < Height - ProgressBand || _player.Progress == null) return false;
+        _seekX = x / _scale - entry.Left;
+        return true;
+    }
+
+    /// <param name="deltaX">Physical pixels; positive = the mouse moved left.</param>
+    public void ScrollBy(int deltaX, int deltaY)
+    {
+        _seekX -= deltaX / _scale;
+        _dragFraction = ProgressFraction(_seekX);
+        UpdateProgress();
+    }
+
+    public void ScrollEnded()
+    {
+        if (_dragFraction is { } fraction && _player.Progress is { } p) _player.Seek(fraction * p.Duration);
+        _dragFraction = null;
+        UpdateProgress();
+    }
+
+    /// <summary>The wheel over the bar: one notch = 5 seconds (away from you = forward).</summary>
+    public void Wheel(int notches)
+    {
+        if (_player.Progress is not { } p) return;
+        _player.Seek(p.Position - notches * 5);
+        UpdateProgress();
+    }
 
     private FrameworkElement MediaSlot()
     {
@@ -241,8 +307,9 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
                 ? Glyph("", 18, Theme.TextDim) // a music note
                 : new Border { CornerRadius = new CornerRadius(8), Background = new ImageBrush(_art) { Stretch = Stretch.UniformToFill } },
         };
+        var lift = OwnPlayer ? 4 : 0; // our own player has the progress bar underneath: make room for its knob
         Canvas.SetLeft(art, 6);
-        Canvas.SetTop(art, (Height - ArtSize) / 2);
+        Canvas.SetTop(art, (Height - ArtSize) / 2 - lift);
         var text = new StackPanel
         {
             Width = MediaButtons - 6 - ArtSize - 14,
@@ -253,7 +320,7 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
             },
         };
         Canvas.SetLeft(text, 6 + ArtSize + 8);
-        Canvas.SetTop(text, Height / 2 - 18);
+        Canvas.SetTop(text, Height / 2 - 18 - lift);
         var canvas = new Canvas { Width = MediaWidthNow, Height = Height, Children = { art, text } };
         // Previous, play/pause, next (Segoe icon glyphs).
         var glyphs = new[] { "", info.Playing ? "" : "", "" };
@@ -273,6 +340,34 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
             Canvas.SetLeft(speaker, MediaButtons + glyphs.Length * MediaButton);
             Canvas.SetTop(speaker, (Height - 24) / 2);
             canvas.Children.Add(speaker);
+
+            // The current list (Segoe icon E8FD, a bulleted list): what plays now and what comes next.
+            var list = Glyph("", 14, Theme.Text);
+            list.Width = MediaButton;
+            Canvas.SetLeft(list, MediaButtons + (glyphs.Length + 1) * MediaButton);
+            Canvas.SetTop(list, (Height - 24) / 2);
+            canvas.Children.Add(list);
+
+            // The progress bar along the slot's bottom edge, with a round knob to grab. Only the filled part and
+            // the knob move while a track plays, so they are kept and moved by a small timer instead of redrawing the dock.
+            var track = new Border { Width = ProgressWidth, Height = ProgressHeight, CornerRadius = new CornerRadius(ProgressHeight / 2), Background = Theme.ButtonFill };
+            _progressFill = new Border { Width = 0, Height = ProgressHeight, CornerRadius = new CornerRadius(ProgressHeight / 2), Background = Theme.Text };
+            _progressTrack = track;
+            foreach (var bar in new[] { track, _progressFill })
+            {
+                Canvas.SetLeft(bar, ProgressInset);
+                Canvas.SetTop(bar, Height - ProgressBand / 2 - ProgressHeight / 2);
+                canvas.Children.Add(bar);
+            }
+            _progressKnob = new Ellipse { Width = ProgressKnob, Height = ProgressKnob, Fill = Theme.Text };
+            Canvas.SetTop(_progressKnob, Height - ProgressBand / 2 - ProgressKnob / 2);
+            canvas.Children.Add(_progressKnob);
+            UpdateProgress();
+        }
+        else
+        {
+            _progressFill = _progressTrack = null;
+            _progressKnob = null;
         }
         return canvas;
     }
@@ -302,6 +397,40 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
         {
             return null; // not a decodable picture
         }
+    }
+
+    // The list button: what plays now and next, for whatever our own player is playing.
+    //  - Spotify: asked from Spotify (its queue), so it is right even for shuffled or someone else's playlists.
+    //  - opened files: the list the user picked.
+    //  - anything else (YouTube...): the page has its own list, so the player window is shown instead.
+    private void ShowCurrentList(double centerX, double dockTop, double dockBottom)
+    {
+        if (_player.SpotifyMode)
+        {
+            QueuePopup.Show(centerX, dockTop, dockBottom, "Spotify · 지금 재생 중 / 다음 곡", async () =>
+            {
+                var (current, next) = await _spotify.QueueAsync();
+                var rows = new List<QueuePopup.Row>();
+                if (current != null) rows.Add(new QueuePopup.Row(current.Title, current.Subtitle, true, null));
+                rows.AddRange(next.Select(t => new QueuePopup.Row(t.Title, t.Subtitle, false, () => _spotify.JumpToAsync(t))));
+                return rows;
+            }, empty: "재생 중인 곡이 없습니다.");
+        }
+        else if (_player.FileQueue.Count > 0)
+        {
+            QueuePopup.Show(centerX, dockTop, dockBottom, "음악 파일", () =>
+            {
+                var files = _player.FileQueue;
+                var playing = _player.FileIndex;
+                var rows = files.Select((file, i) => new QueuePopup.Row(System.IO.Path.GetFileNameWithoutExtension(file), "", i == playing, () =>
+                {
+                    _player.PlayFileAt(i);
+                    return Task.CompletedTask;
+                })).ToList();
+                return Task.FromResult(rows);
+            }, empty: "목록이 비어 있습니다.");
+        }
+        else _player.ShowWindow();
     }
 
     // Clicking the art or title brings the playing app forward, if it has a window.
@@ -490,6 +619,13 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
         var inside = x / _scale - entry.Left; // DIPs from the slot's left edge
         if (entry.Media)
         {
+            // The bottom band is the progress bar: jump to where it was clicked.
+            if (OwnPlayer && y / _scale >= Height - ProgressBand && _player.Progress is { } progress)
+            {
+                _player.Seek(ProgressFraction(inside) * progress.Duration);
+                UpdateProgress();
+                return;
+            }
             if (inside < MediaButtons) ShowMediaApp();
             else
                 switch ((int)((inside - MediaButtons) / MediaButton))
@@ -497,14 +633,16 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
                     case 0: if (OwnPlayer) _player.Previous(); else _media.Previous(); break;
                     case 1: if (OwnPlayer) _player.TogglePlayPause(); else _media.TogglePlayPause(); break;
                     case 2: if (OwnPlayer) _player.Next(); else _media.Next(); break;
-                    default: // the speaker, which only our own player has
+                    case var button: // the speaker (3) and the current list (4), which only our own player has
                         if (!OwnPlayer) break;
-                        // The bar opens centred on the speaker button. Screen points are pixels; WPF windows want DIPs.
-                        var middle = entry.Left + MediaButtons + 3.5 * MediaButton;
+                        // The popup opens centred on its button. Screen points are pixels; WPF windows want DIPs.
+                        var middle = entry.Left + MediaButtons + (Math.Min(button, 4) + 0.5) * MediaButton;
                         var top = _desktop.IconToScreen(_x + Px(middle), _y);
                         var bottom = _desktop.IconToScreen(_x + Px(middle), _y + _height);
-                        VolumePopup.Show(top.X / _scale, top.Y / _scale, bottom.Y / _scale, _player,
-                            save: v => _drawer.PlayerVolume = v, mutedChanged: () => Refresh(force: false));
+                        if (button == 3)
+                            VolumePopup.Show(top.X / _scale, top.Y / _scale, bottom.Y / _scale, _player,
+                                save: v => _drawer.PlayerVolume = v, mutedChanged: () => Refresh(force: false));
+                        else ShowCurrentList(top.X / _scale, top.Y / _scale, bottom.Y / _scale);
                         break;
                 }
             return;
@@ -590,6 +728,7 @@ internal sealed class DesktopDock : IDesktopLayerItem, IDisposable
     public void Dispose()
     {
         _timer.Stop();
+        _progressTimer.Stop();
         _window.Dispose();
     }
 }

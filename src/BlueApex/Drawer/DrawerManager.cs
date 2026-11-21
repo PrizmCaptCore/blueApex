@@ -603,6 +603,18 @@ internal sealed class DrawerManager : IDisposable
             Log.Write($"portal '{portal.Title}' held {portal.Members.Count} member(s); returned to the default zone");
             portal.Members.Clear();
         }
+        // An icon belongs to one zone, once. Repairs layouts where it got listed twice (see Poll); the first
+        // place it appears wins. HashSet.Add answers false for an id it already holds, which filters the repeats.
+        var kept = new HashSet<string>();
+        var repeats = 0;
+        foreach (var zone in _file.Zones)
+        {
+            var once = zone.Members.Where(kept.Add).ToList();
+            repeats += zone.Members.Count - once.Count;
+            zone.Members = once;
+        }
+        if (repeats > 0) Log.Write($"removed {repeats} repeated zone member(s)");
+
         var owned = _file.Zones.SelectMany(z => z.Members).ToHashSet();
         foreach (var icon in _current.Values.Where(i => !owned.Contains(i.Id)).OrderBy(i => i.Name))
             DefaultZone.Members.Add(icon.Id);
@@ -936,9 +948,17 @@ internal sealed class DrawerManager : IDisposable
             if (!previous.ContainsKey(icon.Id))
             {
                 // New on the desktop: file it by rule (else the default zone), then into the drawer unless pinned.
-                var target = ZoneRules.Target(RuleZones, icon) ?? DefaultZone;
-                target.Members.Add(icon.Id);
-                Log.Write($"new {icon.Name} -> {target.Title}");
+                // "New" only means "not in the scan a second ago". The Recycle Bin can be missing from explorer's
+                // view for a moment at startup and then appear: it already has its zone, and adding it again
+                // made it show twice. So an icon some zone already holds stays where it is.
+                var target = ZoneOf(icon.Id);
+                if (target == null)
+                {
+                    target = ZoneRules.Target(RuleZones, icon) ?? DefaultZone;
+                    target.Members.Add(icon.Id);
+                    Log.Write($"new {icon.Name} -> {target.Title}");
+                }
+                else Log.Write($"back on the desktop: {icon.Name} (already in {target.Title})");
                 if (!IsPinned(icon.Id))
                 {
                     Hide(icon.Id);

@@ -30,6 +30,10 @@ build/
     DiscordSetup.cs      "디스코드 음성 연결 (고급)" 창: 디스코드 개발자 앱 만드는 법 안내와 Client ID·Secret 입력.
     SpotifySetup.cs      "Spotify 연결 (고급)" 창: Spotify 개발자 앱 만드는 법 안내, Client ID 입력, 연결/연결 해제.
     SpotifyPicker.cs     독의 Spotify 메뉴가 띄우는 목록 창 하나(검색 결과·내 재생목록·좋아요 곡). 줄을 누르면 바로 실행.
+    VolumePopup.cs       독의 스피커 버튼을 누르면 뜨는 볼륨 바(끌기·휠·음소거).
+    QueuePopup.cs        독의 목록 버튼을 누르면 뜨는 "지금 재생 중 / 다음 곡" 창. 줄을 누르면 그 곡으로 넘어간다.
+                         무엇을 보여 줄지는 부르는 쪽(DesktopDock.ShowCurrentList)이 준다: Spotify 대기열, 또는 연 파일 목록.
+                         둘 다 독 안이 아니라 따로 뜨는 작은 창인 이유: 독은 클릭만 받고 끌기는 독 이동에 쓰인다.
     Hotkey.cs            전역 단축키 등록.
     IconLoader.cs        셸에서 아이콘 이미지 뽑기.
 
@@ -141,6 +145,8 @@ OnExit
 
 **새 파일이 바탕화면에 생김** — 1초마다 `Poll()`: `DesktopCatalog.Scan`으로 현재 목록을 얻어 직전 목록과 비교.
 새 항목이면 규칙(`ZoneRules.Target`)으로 구역을 정하고(없으면 기본 구역) 숨긴 뒤 트레이 알림. 사라진 항목은 모든 목록에서 제거.
+단 "새 항목"은 "1초 전 목록에 없었다"는 뜻일 뿐이라, 이미 어느 구역에 들어 있으면(`ZoneOf`) 다시 넣지 않는다. 휴지통은 시작 직후 탐색기 목록에
+잠깐 안 보였다 나타날 수 있는데, 예전엔 그때마다 한 번 더 추가돼 서랍에 휴지통이 여러 개 보였다. 이미 생긴 중복은 시작 때 `EnsureDefaultZone`이 정리한다.
 
 **새 폴더 / 폴더 포털** — 카드 우클릭 "새 폴더 만들기" → `DrawerManager.CreateFolder(zone, name)`: `DesktopCatalog.CreateDesktopFolder`로 바탕화면에 만들고,
 `Refresh()`로 목록에 먼저 넣은 뒤(폴링이 "새 항목"으로 오해하지 않도록) 구역에 추가하고 숨긴다.
@@ -175,6 +181,19 @@ OnExit
 그 뒤 API 호출은 전부 `Spotify.SendAsync` 한 곳을 지난다. 토큰이 낡았으면(401) 한 번 새로 받아 다시 시도하고, 오류는
 사용자에게 보여 줄 한국어 문장을 담은 `SpotifyException`으로 바꿔 던진다. `SpotifyPicker`는 그 예외만 잡아 상태 줄에 띄운다.
 refresh token은 새로 받을 때마다 바뀔 수 있어서 `_tokenLock`으로 한 번에 하나씩만 갱신한다.
+
+**진행 바와 현재 목록 (독)** — 재생 위치는 페이지가 `state` 메시지에 `pos`/`dur`(초)로 실어 보내고 `BackgroundPlayer.Progress`가 돌려준다.
+페이지는 몇 초에 한 번만 알려 주므로, 재생 중이면 마지막 보고 뒤 흐른 시간을 더해 지금 위치를 계산한다.
+이 값은 일부러 `Current`(곡 정보)에 넣지 않았다. `Current`가 바뀌면 독 전체를 다시 그리는데, 위치는 매초 바뀌기 때문이다.
+대신 독이 0.5초 타이머(`_progressTimer`)로 바의 채워진 부분 너비만 바꾼다(`UpdateProgress`).
+바의 손잡이는 끌 수 있다. 독에서 끌기는 원래 독을 옮기는데, 독의 창(`DesktopFloatWindow`)은 누르는 순간 "여기는 스크롤되는 곳인가?"
+(`IDesktopLayerScrollable.ScrollsAt`)를 먼저 묻는다. 구역 위젯이 목록을 끌어 스크롤하려고 만든 통로다. 독이 진행 바의 띠(`ProgressBand`)에서
+"예"라고 답하면 그 끌기는 `ScrollBy`로 들어와 손잡이를 움직인다. 실제 이동(`Seek`)은 손을 뗄 때(`ScrollEnded`) 한 번만 한다.
+끄는 내내 이동시키면 Spotify에 명령이 수십 번 간다. 끌지 않고 누르기만 하면 `Click`에서 그 위치로 이동한다.
+현재 목록에서 곡을 누르면 `Spotify.JumpToAsync`: Spotify에는 "대기열의 5번째로 가라"는 명령이 없어서, 마지막으로 시작한 것
+(재생목록이면 `_playingContext`, 곡 목록이면 `_playingUris`)을 그 곡부터 다시 시작한다. 그래서 뒤따르는 곡 순서가 유지된다.
+대기열 조회는 권한(`user-read-playback-state` 등)이 더 필요해서, 그 전에 연결한 사용자는 "연결"을 한 번 다시 눌러야 한다
+(Spotify가 403 "scope"로 거절하면 그렇게 안내한다, `Spotify.Problem`).
 
 **토큰 갱신과 절전·네트워크 끊김** (`Spotify.TokenAsync` 위 주석에 같은 표가 있다):
 

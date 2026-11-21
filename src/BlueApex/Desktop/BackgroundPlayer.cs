@@ -560,8 +560,61 @@ internal sealed class BackgroundPlayer : IDisposable
             _art = null;
             if (artUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) _ = FetchArtAsync(artUrl);
         }
+        // Where in the track we are. Kept apart from Current: it changes every second, and Current changing
+        // makes the dock redraw itself; the dock reads Progress on its own little timer instead.
+        _position = Number(root, "pos");
+        _duration = Number(root, "dur");
+        _progressAt = DateTime.UtcNow;
         Publish(new NowPlayingInfo(title, Text(root, "artist"), playing, _art, "BlueApex"));
     }
+
+    private static double Number(JsonElement root, string name) =>
+        root.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.Number && p.TryGetDouble(out var value) && value >= 0 ? value : 0;
+
+    // --- where in the track ---
+
+    private double _position, _duration; // seconds, as last reported by the page
+    private DateTime _progressAt;        // when that report came
+
+    /// <summary>
+    /// Seconds played and the track's length, or null when nothing plays or the length is unknown (a live
+    /// stream). The page reports only every few seconds, so while playing the time since the last report is added.
+    /// </summary>
+    public (double Position, double Duration)? Progress
+    {
+        get
+        {
+            if (Current is not { } now || _duration <= 0) return null;
+            var position = _position + (now.Playing ? (DateTime.UtcNow - _progressAt).TotalSeconds : 0);
+            return (Math.Clamp(position, 0, _duration), _duration);
+        }
+    }
+
+    /// <summary>Jumps to a point in the track (seconds).</summary>
+    public void Seek(double seconds)
+    {
+        if (_duration <= 0) return;
+        seconds = Math.Clamp(seconds, 0, _duration);
+        var s = seconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+        Run($"window.__blueapex && window.__blueapex.seek && window.__blueapex.seek({s})");
+        // Show it at once; the page's next report confirms (or corrects) it.
+        _position = seconds;
+        _progressAt = DateTime.UtcNow;
+    }
+
+    // --- what the dock's "current list" button needs to know ---
+
+    /// <summary>Spotify is what plays here (the list then comes from Spotify, see Spotify.QueueAsync).</summary>
+    public bool SpotifyMode => _spotifyDevice != null;
+
+    /// <summary>The files picked with "음악 파일 열기", in play order; empty when something else plays.</summary>
+    public IReadOnlyList<string> FileQueue => _filesMode ? _queue : Array.Empty<string>();
+
+    /// <summary>Which of <see cref="FileQueue"/> plays now.</summary>
+    public int FileIndex => _index;
+
+    /// <summary>Plays another file of the list.</summary>
+    public void PlayFileAt(int index) => _ = Step(index - _index);
 
     private async Task FetchArtAsync(string url)
     {
@@ -612,7 +665,8 @@ internal sealed class BackgroundPlayer : IDisposable
             const m = media(), md = navigator.mediaSession && navigator.mediaSession.metadata;
             const art = md && md.artwork && md.artwork.length ? md.artwork[md.artwork.length - 1].src : '';
             return { ev, hasMedia: !!(m && (m.currentSrc || m.src)), playing: !!(m && !m.paused && !m.ended),
-                     title: (md && md.title) || document.title, artist: (md && md.artist) || '', art };
+                     title: (md && md.title) || document.title, artist: (md && md.artist) || '', art,
+                     pos: m ? m.currentTime : 0, dur: m && isFinite(m.duration) ? m.duration : 0 }; // a live stream has no length: 0
           };
           document.addEventListener('play', e => {
             const m = e.target;
@@ -621,10 +675,11 @@ internal sealed class BackgroundPlayer : IDisposable
             active = m;
             post(state('started'));
           }, true);
-          for (const n of ['pause', 'ended', 'loadedmetadata']) document.addEventListener(n, () => post(state('state')), true);
+          for (const n of ['pause', 'ended', 'loadedmetadata', 'seeked']) document.addEventListener(n, () => post(state('state')), true);
           setInterval(() => post(state('state')), 3000);
           window.__blueapex = {
             volume(v) { for (const m of document.querySelectorAll('video, audio')) m.volume = v; },
+            seek(s) { const m = media(); if (m) m.currentTime = s; },
             toggle() { const m = media(); if (m) { if (m.paused) m.play().catch(() => {}); else m.pause(); } },
             next() { const b = document.querySelector('.ytp-next-button'); if (b) b.click(); else post({ ev: 'next' }); },
             prev() {
@@ -663,7 +718,8 @@ internal sealed class BackgroundPlayer : IDisposable
             const big = images.slice().sort((a, b) => (b.width || 0) - (a.width || 0))[0];
             const art = big ? big.url : '';
             const artist = t ? (t.artists || []).map(a => a.name).join(', ') : '';
-            post({ ev: 'state', hasMedia: !!t, playing: !!(t && !s.paused), title: t ? t.name : '', artist, art });
+            post({ ev: 'state', hasMedia: !!t, playing: !!(t && !s.paused), title: t ? t.name : '', artist, art,
+                   pos: t ? s.position / 1000 : 0, dur: t ? s.duration / 1000 : 0 });
             if (!t) return;
             document.getElementById('title').textContent = t.name;
             document.getElementById('artist').textContent = artist;
@@ -678,7 +734,7 @@ internal sealed class BackgroundPlayer : IDisposable
               player.addListener(kind, e => post({ ev: 'sp-error', kind, message: (e && e.message) || '' }));
             player.addListener('player_state_changed', report);
             window.__blueapex = { toggle: () => player.togglePlay(), next: () => player.nextTrack(), prev: () => player.previousTrack(),
-                                  volume: v => player.setVolume(v) };
+                                  volume: v => player.setVolume(v), seek: s => player.seek(s * 1000) };
             if (typeof window.__blueapexVolume === 'number') player.setVolume(window.__blueapexVolume);
             setInterval(() => player.getCurrentState().then(report), 3000);
             player.connect().then(ok => { if (!ok) post({ ev: 'sp-error', kind: 'connect', message: 'connect failed' }); });

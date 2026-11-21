@@ -156,7 +156,8 @@ internal sealed class DesktopFloatWindow : IDisposable
         e.Handled = true;
         if (_dragging)
         {
-            if (!_scrolling) Guard(_item.Moved);
+            if (_scrolling) Guard(((IDesktopLayerScrollable)_item).ScrollEnded);
+            else Guard(_item.Moved);
             return;
         }
         var (rx, ry) = Relative(Cursor());

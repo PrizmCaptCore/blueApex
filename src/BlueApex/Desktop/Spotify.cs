@@ -49,8 +49,10 @@ internal sealed class Spotify
     private const string TokenUrl = "https://accounts.spotify.com/api/token";
     private const string Api = "https://api.spotify.com/v1";
     // The last three are what Spotify's Web Playback SDK (the built-in player) asks for.
+    // The read-playback pair is for "what plays next" (the dock's current-list button).
     private const string Scopes = "user-modify-playback-state playlist-read-private playlist-read-collaborative user-library-read"
-                                  + " streaming user-read-email user-read-private";
+                                  + " streaming user-read-email user-read-private"
+                                  + " user-read-playback-state user-read-currently-playing";
     private const string NotLinked = "Spotify에 연결돼 있지 않습니다. 트레이 메뉴 \"Spotify 연결 (고급)...\"에서 연결해 주세요.";
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
@@ -371,6 +373,9 @@ internal sealed class Spotify
         return status switch
         {
             403 when premium => "Spotify Premium 계정만 재생을 조작할 수 있습니다.",
+            // A feature added after the user signed in needs a permission that sign-in did not ask for.
+            403 when message?.Contains("scope", StringComparison.OrdinalIgnoreCase) == true =>
+                "이 기능은 새 권한이 필요합니다. 트레이 메뉴 \"Spotify 연결 (고급)...\"에서 \"연결\"을 한 번 다시 눌러 주세요.",
             403 => "Spotify가 거부했습니다. 개발자 대시보드 앱의 User Management에 이 Spotify 계정이 등록돼 있는지 확인해 주세요."
                    + (message != null ? $" ({message})" : ""),
             404 when reason == "NO_ACTIVE_DEVICE" => "재생할 Spotify 기기가 없습니다. Spotify 앱을 켜 주세요.",
@@ -463,15 +468,56 @@ internal sealed class Spotify
 
     /// <summary>Plays a track on its own, or an album / playlist from its start.</summary>
     public Task PlayAsync(SpotifyItem item) =>
-        StartAsync(item.IsTrack ? (object)new { uris = new[] { item.Uri } } : new { context_uri = item.Uri });
+        item.IsTrack ? StartListAsync(new[] { item.Uri }, 0) : StartContextAsync(item.Uri, null);
 
     /// <summary>Plays a list of tracks, starting at one of them (liked songs: the rest follow).</summary>
     public Task PlayAsync(IReadOnlyList<SpotifyItem> tracks, int startAt) =>
-        StartAsync(new { uris = tracks.Select(t => t.Uri).ToArray(), offset = new { position = startAt } });
+        StartListAsync(tracks.Select(t => t.Uri).ToArray(), startAt);
 
     /// <summary>Plays a playlist (or album) starting at one of its tracks; the rest of it follows.</summary>
-    public Task PlayAsync(SpotifyItem context, SpotifyItem startAt) =>
-        StartAsync(new { context_uri = context.Uri, offset = new { uri = startAt.Uri } });
+    public Task PlayAsync(SpotifyItem context, SpotifyItem startAt) => StartContextAsync(context.Uri, startAt.Uri);
+
+    // What was last started from here, remembered so "jump to that track in the current list" can start the
+    // same thing again at another track (Spotify has no "go to the 5th track of the queue" command).
+    private string? _playingContext; // a playlist or album...
+    private string[]? _playingUris;  // ...or a plain list of tracks (liked songs, one searched track)
+
+    private Task StartContextAsync(string context, string? startAtTrack)
+    {
+        (_playingContext, _playingUris) = (context, null);
+        return StartAsync(startAtTrack == null ? (object)new { context_uri = context } : new { context_uri = context, offset = new { uri = startAtTrack } });
+    }
+
+    private Task StartListAsync(string[] uris, int startAt)
+    {
+        (_playingContext, _playingUris) = (null, uris);
+        return StartAsync(new { uris, offset = new { position = startAt } });
+    }
+
+    /// <summary>The track playing now (null when none) and the ones Spotify will play after it, in order.</summary>
+    public async Task<(SpotifyItem? Current, List<SpotifyItem> Next)> QueueAsync()
+    {
+        using var doc = await SendAsync(HttpMethod.Get, "/me/player/queue");
+        var next = new List<SpotifyItem>();
+        if (doc == null) return (null, next);
+        var root = doc.RootElement;
+        var current = root.TryGetProperty("currently_playing", out var playing) && playing.ValueKind == JsonValueKind.Object ? Track(playing) : null;
+        if (root.TryGetProperty("queue", out var queue) && queue.ValueKind == JsonValueKind.Array)
+            foreach (var entry in queue.EnumerateArray())
+                if (entry.ValueKind == JsonValueKind.Object && Track(entry) is { IsTrack: true } item) next.Add(item);
+        return (current, next);
+    }
+
+    /// <summary>
+    /// Goes to a track of the current list: the playlist (or list of tracks) last started from here is started
+    /// again at that track, so what follows it stays the same. A track that is not part of it just plays alone.
+    /// </summary>
+    public Task JumpToAsync(SpotifyItem track)
+    {
+        if (_playingContext != null) return StartContextAsync(_playingContext, track.Uri);
+        var at = _playingUris == null ? -1 : Array.IndexOf(_playingUris, track.Uri);
+        return at >= 0 ? StartListAsync(_playingUris!, at) : StartListAsync(new[] { track.Uri }, 0);
+    }
 
     /// <summary>
     /// The first 50 tracks of a playlist. Since Spotify's February 2026 change this only works for playlists

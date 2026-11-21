@@ -37,6 +37,12 @@ internal interface IDesktopLayerScrollable
 
     /// <param name="notches">Mouse-wheel notches; positive = wheel rolled towards the user (scroll down).</param>
     void Wheel(int notches);
+
+    /// <summary>
+    /// The button was let go after a drag that scrolled. Optional (the "{ }" is a do-nothing default, so the
+    /// widgets need not write it): the dock's progress bar uses it to jump only once, where the knob was dropped.
+    /// </summary>
+    void ScrollEnded() { }
 }
 
 /// <summary>
